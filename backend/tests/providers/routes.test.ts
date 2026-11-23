@@ -168,4 +168,56 @@ describe('providers end-to-end through the real app (real cost, budgets, instrum
     expect(await ctx.prisma.busEvent.count({ where: { traceId, source: 'SIMULATED' } })).toBeGreaterThanOrEqual(1);
     expect(await ctx.prisma.usageEvent.count({ where: { projectId: p.id } })).toBe(0);
   });
+
+  async function assertTraceWindow(traceId: string) {
+    const res = await request(ctx.app).get(`/api/traces/${traceId}`);
+    expect(res.status).toBe(200);
+    const { trace, timeline, spans } = res.body.data;
+    expect(trace.endedAt).toBeTruthy();
+    const start = Date.parse(trace.startedAt), end = Date.parse(trace.endedAt);
+    expect(timeline.length).toBeGreaterThan(3);
+    const late = timeline.filter((e: any) => Date.parse(e.ts) > end);
+    expect(late.map((e: any) => `${e.step}@${e.ts}`), `entries after trace end ${trace.endedAt}`).toEqual([]);
+    expect(timeline.filter((e: any) => Date.parse(e.ts) < start).map((e: any) => e.step)).toEqual([]);
+    const sim = spans.filter((s: any) => s.source === 'SIMULATED' && s.parentSpanId);
+    for (const sp of sim) expect(Date.parse(sp.startedAt)).toBeLessThanOrEqual(end);
+    return { trace, timeline, spans };
+  }
+
+  e2e('simulated agent events never fall outside the trace window (live requests, all failure modes)', async () => {
+    const p = await makeProject(ctx.prisma);
+    for (const simulateFailure of ['none', 'timeout', 'rate_limit', 'error'] as const) {
+      for (let i = 0; i < 3; i++) {
+        const res = await request(ctx.app).post('/api/providers/requests').send({ projectId: p.id, provider: 'openai', model: 'gpt-4o', prompt: prompt + i, simulateAgentActivity: true, simulateFailure });
+        expect(res.status).toBe(201);
+        const { timeline } = await assertTraceWindow(res.body.data.traceId);
+        expect(timeline.some((e: any) => e.source === 'SIMULATED')).toBe(true);
+        expect(timeline.some((e: any) => e.source === 'ACTUAL')).toBe(true);
+      }
+    }
+  });
+
+  e2e('agent-run events stay inside the trace window and the last event is the execution end', async () => {
+    const p = await makeProject(ctx.prisma);
+    for (const simulateFailure of ['none', 'timeout', 'error', 'rate_limit'] as const) {
+      const res = await request(ctx.app).post('/api/simulations/agent-run').send({ projectId: p.id, simulateFailure });
+      expect(res.status).toBe(201);
+      const { timeline } = await assertTraceWindow(res.body.data.traceId);
+      expect(['execution.completed', 'execution.failed']).toContain(timeline[timeline.length - 1].step);
+    }
+  });
+
+  e2e('seeded (backdated) agent traces stay entirely in the past and inside their window', async () => {
+    const res = await request(ctx.app).post('/api/simulations/seed').send({ requests: 30, spreadDays: 20, includeAgentActivity: true, seed: 'window-test' });
+    expect(res.status).toBe(201);
+    const traced = await ctx.prisma.usageEvent.findMany({ where: { projectId: res.body.data.projectId, traceId: { not: null } }, orderBy: { createdAt: 'desc' }, take: 25 });
+    expect(traced.length).toBe(25);
+    const now = Date.now();
+    for (const u of traced.slice(0, 6)) {
+      const { trace, timeline } = await assertTraceWindow(u.traceId!);
+      expect(Date.parse(trace.startedAt)).toBe(u.createdAt.getTime());
+      expect(Date.parse(trace.endedAt)).toBeLessThan(now - 1000);
+      for (const e of timeline) expect(Date.parse(e.ts)).toBeLessThan(now - 500);
+    }
+  });
 });

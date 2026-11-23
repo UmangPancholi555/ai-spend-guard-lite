@@ -3,6 +3,7 @@
  * The mock provider call is a local deterministic SIMULATION; the surrounding lifecycle (cost, persistence,
  * budgets, tracing) is real app execution, hence ACTUAL spans with `simulated: true` on the provider span.
  */
+import { performance } from 'node:perf_hooks';
 import type { AppDeps } from '../../contracts/services';
 import type { ErrorInfo, SpanHandle, TraceHandle } from '../../contracts/instrumentation';
 import type { BudgetAlertDto, CostBreakdown, MockProviderResponse, Source } from '../../../../shared/types';
@@ -81,8 +82,12 @@ export async function executeMockRequest(deps: AppDeps, rawInput: MockProviderRe
     : await instr.startTrace({
       name: 'provider.request', projectId: project.id, requestId, source,
       attributes: { provider: input.provider, model: input.model, simulated: true, label: SIM_LABEL },
+      at, // anchor: backdated traces stay in the past
     });
   const traceId = trace?.traceId;
+  // Event clock tied to the trace anchor: events stamped with it always fall inside [trace start, trace end].
+  const perf0 = performance.now();
+  const clock = (): Date => (trace ? new Date(at.getTime() + Math.floor(performance.now() - perf0)) : at);
 
   let failureInfo: ErrorInfo | undefined;
   try {
@@ -110,7 +115,7 @@ export async function executeMockRequest(deps: AppDeps, rawInput: MockProviderRe
     if (completion.failure) {
       await instr.recordError({
         source, category: completion.failure.category, operation: 'provider.mock', error: failureInfo,
-        traceId, spanId: undefined, projectId: project.id, requestId,
+        traceId, projectId: project.id, requestId, at: clock(),
         attributes: { provider: input.provider, model: input.model, errorCode: completion.failure.code, simulated: true },
         durationMs: completion.durationMs,
       });
@@ -159,12 +164,12 @@ export async function executeMockRequest(deps: AppDeps, rawInput: MockProviderRe
     if (opts.activity !== false) {
       await instr.recordActivity(completion.failure
         ? {
-          type: 'request.failed', level: 'ERROR', source: 'ACTUAL', projectId: project.id, traceId, requestId,
+          type: 'request.failed', level: 'ERROR', source: 'ACTUAL', projectId: project.id, traceId, requestId, at: clock(),
           message: `Simulated ${input.provider}/${input.model} request failed: ${completion.failure.code}`,
           metadata: { usageEventId: event.id, provider: input.provider, model: input.model, errorCode: completion.failure.code, simulated: true, label: SIM_LABEL },
         }
         : {
-          type: 'usage.recorded', level: 'INFO', source: 'ACTUAL', projectId: project.id, traceId, requestId,
+          type: 'usage.recorded', level: 'INFO', source: 'ACTUAL', projectId: project.id, traceId, requestId, at: clock(),
           message: `Recorded simulated ${input.provider}/${input.model} usage (${completion.inputTokens + completion.cachedTokens} in / ${completion.outputTokens} out tokens)`,
           metadata: {
             usageEventId: event.id, provider: input.provider, model: input.model, inputTokens: completion.inputTokens,
@@ -183,7 +188,7 @@ export async function executeMockRequest(deps: AppDeps, rawInput: MockProviderRe
     // 6. simulated agent activity
     if (input.simulateAgentActivity && trace) {
       await emitSimulatedAgentActivity(instr, {
-        trace, parentSpan: trace.rootSpan, projectId: project.id, requestId, seed: completion.seed, failure: input.simulateFailure,
+        trace, parentSpan: trace.rootSpan, projectId: project.id, requestId, seed: completion.seed, failure: input.simulateFailure, clock,
       });
     }
 

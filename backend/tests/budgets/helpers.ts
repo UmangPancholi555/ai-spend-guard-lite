@@ -1,7 +1,7 @@
 import express from 'express';
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
-import type { Instrumentation, ActivityInput, BusRecordInput, LogInput } from '../../src/contracts/instrumentation';
+import type { Instrumentation, ActivityInput, BusRecordInput, LogInput, ErrorRecordInput } from '../../src/contracts/instrumentation';
 import type { AppDeps } from '../../src/contracts/services';
 import type { TestCtx } from '../helpers/testApp';
 import { createCostRouter, createCostService } from '../../src/modules/cost';
@@ -12,20 +12,21 @@ import { usdToPico } from '../../src/utils/money';
 
 export interface TaskRecord { name: string; kind: string; source: string; succeeded?: Record<string, unknown>; failed?: unknown }
 export interface RecordingInstr extends Instrumentation {
-  activities: ActivityInput[]; bus: BusRecordInput[]; logs: LogInput[]; tasks: TaskRecord[];
+  activities: ActivityInput[]; bus: BusRecordInput[]; logs: LogInput[]; errors: ErrorRecordInput[]; tasks: TaskRecord[];
 }
 
 /** Recording fake Instrumentation (the real SDK is built by another agent). */
 export function createRecordingInstr(overrides: Partial<Instrumentation> = {}): RecordingInstr {
   const base = createNoopInstrumentation();
   const rec = {
-    activities: [] as ActivityInput[], bus: [] as BusRecordInput[], logs: [] as LogInput[], tasks: [] as TaskRecord[],
+    activities: [] as ActivityInput[], bus: [] as BusRecordInput[], logs: [] as LogInput[], errors: [] as ErrorRecordInput[], tasks: [] as TaskRecord[],
   };
   const instr: RecordingInstr = {
     ...base, ...rec,
     recordActivity: async i => { rec.activities.push(i); },
     recordBus: async i => { rec.bus.push(i); return 'op_' + rec.bus.length; },
     log: async i => { rec.logs.push(i); },
+    recordError: async i => { rec.errors.push(i); },
     startTask: async t => {
       const r: TaskRecord = { name: t.name, kind: t.kind, source: t.source };
       rec.tasks.push(r);

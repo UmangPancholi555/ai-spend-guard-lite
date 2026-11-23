@@ -11,8 +11,8 @@ async function main() {
   await seedCatalog(prisma);
   const deps = createDeps(prisma, config);
   const app = buildApp(deps);
-  const server = app.listen(config.port, () => {
-    console.log(`AI Spend Guard Lite API listening on http://localhost:${config.port}  [DEMO / SIMULATED - no external AI requests]`);
+  const server = app.listen(config.port, process.env.HOST ?? '127.0.0.1', () => {
+    console.log(`AI Spend Guard Lite API listening on http://${process.env.HOST ?? '127.0.0.1'}:${config.port}  [DEMO / SIMULATED - no external AI requests]`);
   });
   const shutdown = async () => { server.close(); await prisma.$disconnect(); process.exit(0); };
   process.on('SIGINT', shutdown);

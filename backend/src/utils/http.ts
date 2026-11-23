@@ -28,7 +28,7 @@ export function pageOf(total: number, page: number, pageSize: number): Paginatio
 /** CSV cell escape (RFC 4180) + formula-injection guard */
 export function csvCell(v: unknown): string {
   let s = v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
-  if (/^[=+\-@]/.test(s) && Number.isNaN(Number(s))) s = `'${s}`;
+  if ((/^[=+\-@]/.test(s) && Number.isNaN(Number(s))) || /^[\t\r]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 export function toCsv(headers: string[], rows: unknown[][]): string {

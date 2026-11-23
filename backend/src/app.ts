@@ -28,6 +28,15 @@ export function buildApp(deps: AppDeps) {
   const app = express();
   app.disable('x-powered-by');
   app.use(cors({ origin: [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/] }));
+  // CSRF guard: state-changing /api requests carrying a foreign Origin are rejected (blocks cross-site form POSTs).
+  app.use('/api', (req, res, next) => {
+    const origin = req.headers.origin;
+    const safe = req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS';
+    if (!safe && origin && !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)) {
+      return res.status(403).json({ error: { code: 'FORBIDDEN_ORIGIN', message: 'Cross-origin state-changing requests are not allowed' } });
+    }
+    next();
+  });
   app.use(express.json({ limit: '1mb' }));
   app.use('/api', requestLifecycleMiddleware(deps.instr));
 

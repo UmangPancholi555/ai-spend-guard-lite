@@ -14,7 +14,7 @@ export const activityQuery = listBase.extend({
   source: SOURCE_ENUM.optional(),
   projectId: z.string().min(1).max(64).optional(),
   traceId: z.string().min(1).max(64).optional(),
-  search: z.string().trim().min(1).max(200).optional(),      // case-insensitive substring of message or type
+  search: z.string().trim().min(1).max(200).optional(),      // case-insensitive substring of message, type or requestId
   ...rangeShape,                                              // createdAt, `to` inclusive (date-only => whole UTC day)
 }).superRefine(checkRange);
 
@@ -35,7 +35,7 @@ export function createActivityRouter(deps: AppDeps): Router {
     if (q.traceId) and.push({ traceId: q.traceId });
     const range = rangeFilter(q.from, q.to);
     if (range) and.push({ createdAt: range });
-    const s = searchOr(q.search, ['message', 'type']);
+    const s = searchOr(q.search, ['message', 'type', 'requestId']);
     if (s) and.push(s);
     const where: Prisma.ActivityEventWhereInput = and.length ? { AND: and } : {};
 

@@ -70,7 +70,7 @@ export default function ProjectsPage() {
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[12rem] flex-1">
             <label htmlFor="project-search" className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Search</label>
-            <input id="project-search" type="search" className={`${inputCls} w-full`} placeholder="Project name or description" value={searchInput} onChange={e => setSearchInput(e.target.value)} data-testid="project-search" />
+            <input id="project-search" type="search" className={`${inputCls} w-full`} placeholder="Project name" value={searchInput} onChange={e => setSearchInput(e.target.value)} data-testid="project-search" />
           </div>
           <div>
             <label htmlFor="project-status" className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Status</label>

@@ -20,6 +20,9 @@ export function errorHandler(instr: Instrumentation) {
     if (e?.type === 'entity.parse.failed') {
       return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Invalid JSON body' } });
     }
+    if (e?.type === 'entity.too.large') {
+      return res.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'Request body too large (limit 1mb)' } });
+    }
     // Unexpected: record as ACTUAL error event (instrumented error handler), never leak the stack to the client.
     void instr.recordError({
       source: 'ACTUAL', category: 'INTERNAL', operation: `${req.method} ${req.path}`, error: err,

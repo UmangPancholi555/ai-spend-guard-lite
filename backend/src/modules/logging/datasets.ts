@@ -91,7 +91,7 @@ const activity: Dataset<z.infer<typeof activityFilter>> = {
   name: 'activity', filterSchema: activityFilter, delegate: p => p.activityEvent as any, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   include: { project: { select: { name: true } } },
   where: q => and(eq('type', q.type), eq('level', q.level), eq('source', q.source), eq('projectId', q.projectId), eq('traceId', q.traceId),
-    contains(['message', 'type'], q.search), q.from || q.to ? { createdAt: between(q.from, q.to) } : undefined),
+    contains(['message', 'type', 'requestId'], q.search), q.from || q.to ? { createdAt: between(q.from, q.to) } : undefined),
   toDto: toActivityDto, headers: activityHeaders, toRow: d => activityHeaders.map(h => d[h]),
 };
 

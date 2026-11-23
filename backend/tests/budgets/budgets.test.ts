@@ -238,14 +238,14 @@ describe('scoping', () => {
 });
 
 describe('instrumentation', () => {
-  it('emits activity (WARN/ERROR), bus publish and log per alert, all source ACTUAL', async () => {
+  it('emits exactly one activity (WARN) and one bus publish per new alert, source ACTUAL, and no ERROR/FAILURE log', async () => {
     const p = await makeProject(ctx.prisma);
     const b = await makeBudget(ctx.prisma, { projectId: p.id, period: 'MONTHLY', limitUsd: '100' });
     await addUsage(ctx.prisma, p.id, '110', AT);
     const alerts = await svc.evaluateAfterUsage({ projectId: p.id, at: AT, traceId: 'trace-1', spanId: 'span-1' });
     expect(alerts).toHaveLength(3);
     expect(instr.activities.map(a => [a.type, a.level, a.source])).toEqual([
-      ['budget.alert', 'WARN', 'ACTUAL'], ['budget.alert', 'WARN', 'ACTUAL'], ['budget.alert', 'ERROR', 'ACTUAL'],
+      ['budget.alert', 'WARN', 'ACTUAL'], ['budget.alert', 'WARN', 'ACTUAL'], ['budget.alert', 'WARN', 'ACTUAL'],
     ]);
     const a100 = instr.activities[2];
     expect(a100).toMatchObject({ traceId: 'trace-1', projectId: p.id });
@@ -255,8 +255,24 @@ describe('instrumentation', () => {
       source: 'ACTUAL', operationName: 'budget.alert.publish', operationType: 'PUBLISH', eventName: 'budget.threshold.crossed',
       success: true, traceId: 'trace-1', projectId: p.id,
     });
-    expect(instr.logs).toHaveLength(3);
-    expect(instr.logs[2]).toMatchObject({ category: 'BUDGET', eventType: 'budget.alert', level: 'ERROR', source: 'ACTUAL' });
+    expect(instr.logs).toHaveLength(0); // activity/bus already mirror into ExecutionLog
+    expect(instr.errors).toHaveLength(0);
+  });
+
+  it('records an error only when alert creation itself throws', async () => {
+    const p = await makeProject(ctx.prisma);
+    await makeBudget(ctx.prisma, { projectId: p.id, period: 'MONTHLY', limitUsd: '10' });
+    await addUsage(ctx.prisma, p.id, '10', AT);
+    const failing = {
+      ...ctx.prisma,
+      usageEvent: ctx.prisma.usageEvent, budget: ctx.prisma.budget,
+      budgetAlert: { ...ctx.prisma.budgetAlert, findMany: ctx.prisma.budgetAlert.findMany.bind(ctx.prisma.budgetAlert), create: async () => { throw Object.assign(new Error('disk full'), { code: 'X1' }); } },
+    } as unknown as typeof ctx.prisma;
+    const s = createBudgetService(failing, instr);
+    await expect(s.evaluateAfterUsage({ projectId: p.id, at: AT })).rejects.toThrow('disk full');
+    expect(instr.errors).toHaveLength(1);
+    expect(instr.errors[0]).toMatchObject({ category: 'DATABASE', operation: 'budget.alert.create', source: 'ACTUAL' });
+    expect(instr.activities).toHaveLength(0);
   });
 
   it('a global budget alert is correlated with the triggering project', async () => {

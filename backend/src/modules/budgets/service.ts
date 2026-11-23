@@ -110,7 +110,8 @@ export function createBudgetService(prisma: PrismaClient, instr: Instrumentation
   async function emit(alert: AlertWithBudget, ctx: { traceId?: string; spanId?: string; projectId?: string }) {
     const dto = toAlertDto(alert);
     const projectId = alert.budget.projectId ?? ctx.projectId;
-    const level = dto.threshold >= 100 ? 'ERROR' : 'WARN';
+    // a threshold crossing is a successful, noteworthy event - never an ERROR/FAILURE
+    const level = 'WARN' as const;
     const base = { traceId: ctx.traceId, spanId: ctx.spanId, projectId };
     const meta = {
       budgetId: dto.budgetId, budgetName: dto.budgetName, threshold: dto.threshold, percent: dto.percent,
@@ -123,10 +124,7 @@ export function createBudgetService(prisma: PrismaClient, instr: Instrumentation
       eventName: 'budget.threshold.crossed', inputMeta: { budgetId: dto.budgetId, threshold: dto.threshold, percent: dto.percent, period: dto.period },
       outputStatus: 'persisted', success: true,
     }));
-    await safe(() => instr.log({
-      ...base, level, eventType: 'budget.alert', category: 'BUDGET', operation: 'budget.alert.create', status: 'INFO',
-      source: 'ACTUAL', message, attributes: meta,
-    }));
+    // no separate instr.log: recordActivity/recordBus already mirror into ExecutionLog (one entry per call)
     return dto;
   }
 
@@ -146,7 +144,17 @@ export function createBudgetService(prisma: PrismaClient, instr: Instrumentation
       const percent = percentOf(spend, budget.limitPico);
       for (const threshold of crossed) {
         if (have.has(threshold)) continue;
-        const alert = await insertAlert({ budgetId: budget.id, threshold, periodStart: start, periodEnd: end, spendPico: spend, limitPico: budget.limitPico, percent });
+        let alert;
+        try {
+          alert = await insertAlert({ budgetId: budget.id, threshold, periodStart: start, periodEnd: end, spendPico: spend, limitPico: budget.limitPico, percent });
+        } catch (e) {
+          // alert creation itself failed: the only case reported as an error
+          await safe(() => instr.recordError({
+            ...ctx, source: 'ACTUAL', category: 'DATABASE', operation: 'budget.alert.create', error: e,
+            attributes: { budgetId: budget.id, threshold },
+          }));
+          throw e;
+        }
         if (!alert) continue;
         created.push(await emit(alert, ctx));
       }
