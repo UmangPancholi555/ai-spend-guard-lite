@@ -88,7 +88,7 @@ it('survives a restart', async () => {
 
 ## 4. Suites
 
-Counts are intentionally not hard-coded here. TODO-COUNTS: run `npm test` to see current counts (coordinator records them in [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)).
+Last verified run: 35 test files, 439 tests passed, 0 failed (see [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)); re-run `npm test` for current counts.
 
 | Folder / file | Covers |
 |---|---|
@@ -137,7 +137,7 @@ Counts are intentionally not hard-coded here. TODO-COUNTS: run `npm test` to see
 - Selectors use the stable `data-testid` attributes present throughout the pages (for example `dashboard-seed`, `simulator-submit`, `trace-row`, `budgets-evaluate`).
 - Output (`test-results/`, `playwright-report/`) is git-ignored.
 
-TODO-COUNTS: at the time of writing only a smoke spec (`tests/e2e/00-smoke.spec.ts`) is present; the QA role is adding the feature specs. Run `npm run test:e2e` for the current list and results.
+Specs `01-shell` … `99-restart-persistence` in `tests/e2e/` (11 files). Last verified run: 53 passed, 0 failed (2.2 min, single worker, fresh temp DB on port 4300). QA reports 3 further repeat runs all 53 passed (see QA-REPORT.md; not independently re-run by the coordinator).
 
 ## 7. Coverage notes and known gaps
 
@@ -150,9 +150,9 @@ TODO-COUNTS: at the time of writing only a smoke spec (`tests/e2e/00-smoke.spec.
 
 | Item | Value |
 |---|---|
-| Backend test files | TODO-COUNTS (run `npm test`) |
-| Backend tests passed / failed / skipped | TODO-COUNTS (run `npm test`) |
-| Typecheck | TODO-COUNTS (run `npm run typecheck`) |
-| E2E tests passed / failed | TODO-COUNTS (run `npm run test:e2e`) |
+| Backend test files | 35 |
+| Backend tests passed / failed / skipped | 439 / 0 / 0 |
+| Typecheck | clean (backend + frontend) |
+| E2E tests passed / failed | 53 / 0 |
 
 Verified by coordinator: **pending** (coordinator fills in the numbers and date after the final run).

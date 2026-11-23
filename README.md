@@ -105,7 +105,7 @@ npm run test:e2e          # Playwright end-to-end tests (see docs/TESTING.md)
 ```
 
 Test counts and the latest results are recorded in [docs/TESTING.md](docs/TESTING.md) and
-[docs/IMPLEMENTATION-STATUS.md](docs/IMPLEMENTATION-STATUS.md) (TODO-COUNTS: run `npm test` to see current counts).
+[docs/IMPLEMENTATION-STATUS.md](docs/IMPLEMENTATION-STATUS.md) (last verified: 439 backend tests + 53 Playwright E2E tests passing).
 
 ## Tour of the UI
 

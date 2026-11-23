@@ -27,7 +27,7 @@ File paths are given as evidence; line numbers and test counts are deliberately 
 | 14 | **UI**: pages, navigation, dark mode, responsive, DEMO / SIMULATED labelling | Complete (code) / Unverified (runtime in a browser by this author) | `frontend/src/App.tsx`, `components/Layout.tsx`, `pages/*`; browser behaviour is covered by e2e / QA (see below) |
 | 15 | **Setup and scripts**: install, migrate, dev, build, start, reset, demo data | Complete | root `package.json` scripts, `.env.example`, [README.md](../README.md); `npm run dev` / `build` / `start` flows verified by reading config (`backend/src/config.ts`, `app.ts` static serving) and a manual server start |
 | 16 | **Backend tests** (unit, API, integration) | Complete (counts TODO) | `backend/tests/**`; see section 3 |
-| 17 | **End-to-end tests** (Playwright) | Partial (infrastructure delivered; feature specs in progress at time of writing) | `playwright.config.ts`, `tests/e2e/support/*` (isolated build + temp DB + server on :4300), `tests/e2e/00-smoke.spec.ts`; `npm run test:e2e`. Coordinator: update when QA finishes |
+| 17 | **End-to-end tests** (Playwright) | Complete (53 specs passed in one run; QA reports 3 further full runs all green; see QA-REPORT.md) | `playwright.config.ts`, `tests/e2e/support/*` (isolated build + temp DB + server on :4300), `tests/e2e/01-shell … 99-restart-persistence.spec.ts`; `npm run test:e2e` |
 | 18 | **Documentation** | Complete | `README.md`, `docs/{ARCHITECTURE,DATABASE,API,TESTING,SECURITY,IMPLEMENTATION-STATUS}.md`; `docs/QA-REPORT.md` is written by the QA role (link only) |
 | 19 | **Security posture** for a local app | Complete for scope; auth / TLS intentionally absent | [SECURITY.md](SECURITY.md) |
 
@@ -50,11 +50,11 @@ File paths are given as evidence; line numbers and test counts are deliberately 
 
 | Item | Result | Verified |
 |---|---|---|
-| Backend test files / tests (Vitest) | TODO-COUNTS (run `npm test` to see counts) | verified by coordinator: pending |
-| Backend pass / fail / skipped | TODO-COUNTS | verified by coordinator: pending |
-| Typecheck (`npm run typecheck`) | TODO-COUNTS | verified by coordinator: pending |
-| Build (`npm run build`) | TODO-COUNTS | verified by coordinator: pending |
-| E2E (Playwright) | TODO-COUNTS (run `npm run test:e2e`; see row 17) | verified by coordinator: pending |
+| Backend test files / tests (Vitest) | 35 files / 439 tests | verified by coordinator: yes (ran 2026-11-23) |
+| Backend pass / fail / skipped | 439 / 0 / 0 | verified by coordinator: yes |
+| Typecheck (`npm run typecheck`) | clean | verified by coordinator: yes |
+| Build (`npm run build`) | succeeds | verified by coordinator: yes |
+| E2E (Playwright) | 53 passed / 0 failed (coordinator single run; QA reports 3 more green runs) | verified by coordinator: yes |
 
 The documentation author did not run the full test suite (other agents were modifying tests concurrently); no pass / fail claim is made here.
 

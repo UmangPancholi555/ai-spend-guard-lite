@@ -67,6 +67,15 @@ export function createProjectsService(deps: AppDeps) {
     return p;
   }
 
+  /** SQLite has no case-insensitive unique index on Project.name, so check-then-write must be serialized within the process
+   *  (otherwise concurrent identical creates / double-clicked submits all pass the check). */
+  let nameLock: Promise<unknown> = Promise.resolve();
+  function withNameLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = nameLock.then(fn, fn);
+    nameLock = run.catch(() => undefined);
+    return run;
+  }
+
   /** names are unique case-insensitively across ALL projects (incl. archived) */
   async function assertNameFree(name: string, exceptId?: string) {
     const lower = name.toLowerCase();
@@ -98,9 +107,11 @@ export function createProjectsService(deps: AppDeps) {
     },
 
     async create(input: { name: string; description?: string; isTest?: boolean }): Promise<ProjectWithUsage> {
-      await assertNameFree(input.name);
-      const p = await prisma.project.create({
-        data: { name: input.name, description: input.description ? input.description : null, isTest: input.isTest ?? false },
+      const p = await withNameLock(async () => {
+        await assertNameFree(input.name);
+        return prisma.project.create({
+          data: { name: input.name, description: input.description ? input.description : null, isTest: input.isTest ?? false },
+        });
       });
       await emit('project.created', `Project "${p.name}" created`, p.id, { projectId: p.id, name: p.name, isTest: p.isTest });
       return (await withUsage([p]))[0];
@@ -110,17 +121,18 @@ export function createProjectsService(deps: AppDeps) {
       const cur = await getRow(id);
       const data: Prisma.ProjectUpdateInput = {};
       const changed: string[] = [];
-      if (input.name !== undefined && input.name !== cur.name) {
-        await assertNameFree(input.name, id);
-        data.name = input.name; changed.push('name');
-      }
+      const renaming = input.name !== undefined && input.name !== cur.name;
+      if (renaming) { data.name = input.name; changed.push('name'); }
       if (input.description !== undefined) {
         const d = input.description === null || input.description === '' ? null : input.description;
         if (d !== cur.description) { data.description = d; changed.push('description'); }
       }
       if (input.isTest !== undefined && input.isTest !== cur.isTest) { data.isTest = input.isTest; changed.push('isTest'); }
       if (changed.length === 0) return (await withUsage([cur]))[0];
-      const p = await prisma.project.update({ where: { id }, data });
+      const p = await withNameLock(async () => {
+        if (renaming) await assertNameFree(input.name!, id);
+        return prisma.project.update({ where: { id }, data });
+      });
       await emit('project.updated', `Project "${p.name}" updated (${changed.join(', ')})`, p.id,
         { projectId: p.id, name: p.name, changedFields: changed, previousName: cur.name });
       return (await withUsage([p]))[0];

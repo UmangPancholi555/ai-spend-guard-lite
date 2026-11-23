@@ -80,12 +80,16 @@ export function searchOr<K extends string>(search: string | undefined, fields: K
 
 // ---------------------------------------------------------------- settings
 export const DEFAULT_SLOW_MS = 500;
-/** reads AppSetting key `settings` (JSON of AppSettings) directly; falls back to the default 500ms */
+/** Reads the slow-operation threshold. The logging module (PUT /settings) persists it as AppSetting key `slowOperationMs`
+ *  (JSON number); a legacy combined `settings` JSON blob is still honoured as a fallback. Default 500ms. */
 export async function loadSlowThresholdMs(prisma: PrismaClient): Promise<number> {
+  const valid = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0;
+  const own = await prisma.appSetting.findUnique({ where: { key: 'slowOperationMs' } });
+  const direct = parseJson<unknown>(own?.value, undefined);
+  if (valid(direct)) return direct;
   const row = await prisma.appSetting.findUnique({ where: { key: 'settings' } });
   const v = parseJson<{ slowOperationMs?: unknown }>(row?.value, {});
-  const n = v.slowOperationMs;
-  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : DEFAULT_SLOW_MS;
+  return valid(v.slowOperationMs) ? v.slowOperationMs : DEFAULT_SLOW_MS;
 }
 
 // ---------------------------------------------------------------- mappers
