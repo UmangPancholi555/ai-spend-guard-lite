@@ -1,0 +1,367 @@
+// AI Spend Guard Lite - SQLite schema.
+// Money is stored as integer pico-USD (1e-12 USD) in BigInt columns => no floating point.
+// Enum-like columns are plain strings validated by Zod (see shared/types.ts).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  status      String    @default("ACTIVE") // ACTIVE | ARCHIVED
+  isTest      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  archivedAt  DateTime?
+
+  usageEvents    UsageEvent[]
+  budgets        Budget[]
+  activityEvents ActivityEvent[]
+  traces         Trace[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Provider {
+  id          String   @id @default(cuid())
+  key         String   @unique // "openai" | "anthropic"
+  displayName String
+  isSimulated Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  models      Model[]
+}
+
+model Model {
+  id            String   @id @default(cuid())
+  providerId    String
+  name          String // e.g. "gpt-4o-mini"
+  displayName   String
+  contextWindow Int
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, name])
+}
+
+// One row per (provider, model, version). Fallback row uses providerKey="*" modelName="*".
+// Prices are decimal strings in USD per 1,000,000 tokens (max 6 decimals).
+model PricingConfig {
+  id            String   @id @default(cuid())
+  providerKey   String
+  modelName     String
+  version       Int
+  inputPerMTok  String
+  outputPerMTok String
+  cachedPerMTok String
+  currency      String   @default("USD")
+  effectiveFrom DateTime
+  note          String?
+  createdAt     DateTime @default(now())
+
+  usageEvents UsageEvent[]
+
+  @@unique([providerKey, modelName, version])
+  @@index([providerKey, modelName, effectiveFrom])
+}
+
+model UsageEvent {
+  id              String   @id @default(cuid())
+  requestId       String   @unique
+  projectId       String
+  providerKey     String
+  modelName       String
+  status          String // SUCCESS | FAILURE
+  errorCode       String?
+  errorMessage    String?
+  inputTokens     Int
+  outputTokens    Int
+  cachedTokens    Int
+  costPico        BigInt // total cost in pico-USD
+  inputCostPico   BigInt
+  outputCostPico  BigInt
+  cachedCostPico  BigInt
+  costClass       String // SIMULATED | ESTIMATED
+  pricingConfigId String?
+  pricingVersion  Int?
+  durationMs      Int
+  simulated       Boolean  @default(true)
+  traceId         String?
+  promptHash      String // sha256 hex of prompt (prompt text is never stored)
+  promptChars     Int
+  responseText    String? // deterministic MOCK response text (not real model output)
+  metadata        String // JSON string: full request metadata
+  createdAt       DateTime @default(now())
+
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pricingConfig PricingConfig? @relation(fields: [pricingConfigId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt])
+  @@index([providerKey, modelName])
+  @@index([createdAt])
+  @@index([status])
+  @@index([traceId])
+}
+
+model Budget {
+  id         String   @id @default(cuid())
+  projectId  String? // null => global budget
+  name       String
+  period     String // DAILY | WEEKLY | MONTHLY
+  limitPico  BigInt
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  project Project?       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  alerts  BudgetAlert[]
+
+  @@index([projectId])
+  @@index([period])
+}
+
+model BudgetAlert {
+  id          String   @id @default(cuid())
+  budgetId    String
+  threshold   Int // 50 | 80 | 100
+  periodStart DateTime
+  periodEnd   DateTime
+  spendPico   BigInt
+  limitPico   BigInt
+  percent     Float
+  createdAt   DateTime @default(now())
+
+  budget Budget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  // duplicate alert prevention: one alert per budget/period/threshold
+  @@unique([budgetId, periodStart, threshold])
+  @@index([createdAt])
+}
+
+model ActivityEvent {
+  id        String   @id @default(cuid())
+  type      String // e.g. project.created, usage.recorded, budget.alert, request.failed
+  level     String // INFO | WARN | ERROR
+  message   String
+  source    String // ACTUAL | SIMULATED
+  projectId String?
+  traceId   String?
+  requestId String?
+  metadata  String   @default("{}") // JSON
+  createdAt DateTime @default(now())
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([type])
+  @@index([projectId, createdAt])
+  @@index([traceId])
+}
+
+model Trace {
+  id           String    @id @default(cuid())
+  traceId      String    @unique // 32 hex
+  name         String
+  projectId    String?
+  requestId    String?
+  status       String // RUNNING | OK | ERROR
+  source       String // ACTUAL | SIMULATED
+  startedAt    DateTime
+  endedAt      DateTime?
+  durationMs   Int?
+  errorMessage String?
+  stack        String?
+  createdAt    DateTime  @default(now())
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  spans   Span[]
+
+  @@index([startedAt])
+  @@index([status])
+  @@index([projectId])
+  @@index([requestId])
+}
+
+model Span {
+  id           String    @id @default(cuid())
+  spanId       String    @unique // 16 hex
+  traceId      String
+  parentSpanId String?
+  name         String
+  kind         String // REQUEST | CONTEXT | MEMORY | BUS | TOOL | PROVIDER | COST | BUDGET | INTERNAL
+  status       String // RUNNING | OK | ERROR
+  source       String // ACTUAL | SIMULATED
+  startedAt    DateTime
+  endedAt      DateTime?
+  durationMs   Int?
+  errorMessage String?
+  stack        String?
+  attributes   String    @default("{}") // JSON (metadata only, never sensitive content)
+
+  trace Trace @relation(fields: [traceId], references: [traceId], onDelete: Cascade)
+
+  @@index([traceId])
+  @@index([parentSpanId])
+  @@index([startedAt])
+}
+
+// Central structured log. Every instrumented event is mirrored here (and into JSONL files).
+model ExecutionLog {
+  id            String   @id @default(cuid())
+  ts            DateTime @default(now())
+  level         String // DEBUG | INFO | WARN | ERROR
+  eventType     String // e.g. memory.injection.completed, bus.operation, tool.call.completed, context.updated, request.started, error
+  category      String // REQUEST | MEMORY | BUS | TOOL | CONTEXT | ERROR | SYSTEM | BUDGET | PROVIDER
+  operation     String // operation name (searchable)
+  status        String // STARTED | SUCCESS | FAILURE | INFO
+  source        String // ACTUAL | SIMULATED
+  traceId       String?
+  spanId        String?
+  requestId     String?
+  projectId     String?
+  durationMs    Int?
+  message       String
+  attributes    String   @default("{}") // JSON metadata only
+  errorCategory String? // VALIDATION | PROVIDER | TIMEOUT | TOOL | BUS | MEMORY | CONTEXT | DATABASE | INTERNAL | UNKNOWN
+  errorMessage  String?
+  stack         String?
+
+  @@index([ts])
+  @@index([eventType])
+  @@index([status])
+  @@index([traceId])
+  @@index([operation])
+  @@index([category, ts])
+  @@index([errorCategory])
+}
+
+model MemoryEvent {
+  id              String   @id @default(cuid())
+  operationId     String // groups started/completed/failed of one injection
+  phase           String // STARTED | COMPLETED | FAILED
+  status          String // STARTED | SUCCESS | FAILURE
+  source          String // ACTUAL | SIMULATED
+  memorySource    String // e.g. "session-memory" (label only)
+  category        String // e.g. "user-preferences"
+  itemCount       Int
+  estimatedTokens Int
+  payloadBytes    Int
+  durationMs      Int?
+  errorMessage    String?
+  traceId         String?
+  spanId          String?
+  projectId       String?
+  createdAt       DateTime @default(now())
+
+  @@index([traceId])
+  @@index([createdAt])
+  @@index([operationId])
+  @@index([status])
+}
+
+model BusEvent {
+  id            String   @id @default(cuid())
+  operationId   String
+  operationName String
+  operationType String // PUBLISH | SUBSCRIBE | REQUEST | DISPATCH
+  eventName     String
+  inputMeta     String   @default("{}") // JSON metadata only
+  outputStatus  String? // e.g. "delivered", "no-subscribers", "error"
+  status        String // SUCCESS | FAILURE
+  source        String // ACTUAL | SIMULATED
+  durationMs    Int?
+  errorMessage  String?
+  stack         String?
+  traceId       String?
+  spanId        String?
+  projectId     String?
+  createdAt     DateTime @default(now())
+
+  @@index([traceId])
+  @@index([createdAt])
+  @@index([operationName])
+  @@index([status])
+}
+
+model ToolCallEvent {
+  id           String    @id @default(cuid())
+  toolName     String
+  toolCallId   String
+  requestId    String?
+  inputMeta    String    @default("{}") // JSON: parameter names/types/sizes/hash - never values
+  outputMeta   String    @default("{}")
+  status       String // SUCCESS | FAILURE
+  source       String // ACTUAL | SIMULATED
+  startedAt    DateTime
+  endedAt      DateTime?
+  durationMs   Int?
+  errorMessage String?
+  retryCount   Int       @default(0)
+  maxRetries   Int       @default(0)
+  traceId      String?
+  spanId       String?
+  projectId    String?
+  createdAt    DateTime  @default(now())
+
+  @@index([traceId])
+  @@index([toolName])
+  @@index([createdAt])
+  @@index([status])
+  @@index([toolCallId])
+}
+
+model ContextEvent {
+  id              String   @id @default(cuid())
+  contextId       String
+  operation       String // CREATED | UPDATED | ADDED | MODIFIED
+  contextSource   String
+  sizeBytes       Int
+  estimatedTokens Int
+  version         Int
+  status          String // SUCCESS | FAILURE
+  source          String // ACTUAL | SIMULATED
+  errorMessage    String?
+  durationMs      Int?
+  traceId         String?
+  spanId          String?
+  projectId       String?
+  createdAt       DateTime @default(now())
+
+  @@index([traceId])
+  @@index([contextId])
+  @@index([createdAt])
+}
+
+model BackgroundTask {
+  id           String    @id @default(cuid())
+  name         String
+  kind         String // RETENTION_SWEEP | DEMO_SEED | BUDGET_EVALUATION | EXPORT | OTHER
+  status       String // QUEUED | RUNNING | SUCCEEDED | FAILED
+  source       String // ACTUAL | SIMULATED
+  traceId      String?
+  startedAt    DateTime?
+  endedAt      DateTime?
+  durationMs   Int?
+  result       String    @default("{}") // JSON
+  errorMessage String?
+  stack        String?
+  createdAt    DateTime  @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([kind])
+}
+
+model AppSetting {
+  key       String   @id
+  value     String // JSON-encoded
+  updatedAt DateTime @updatedAt
+}

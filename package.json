@@ -1,0 +1,29 @@
+{
+  "name": "ai-spend-guard-lite",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Spend Guard Lite - local, fully simulated AI spend tracking and execution observability",
+  "workspaces": ["backend", "frontend"],
+  "scripts": {
+    "setup": "npm install && npm run db:migrate && npm run build",
+    "db:generate": "prisma generate --schema prisma/schema.prisma",
+    "db:migrate": "prisma migrate deploy --schema prisma/schema.prisma",
+    "db:migrate:dev": "prisma migrate dev --schema prisma/schema.prisma",
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "start": "npm run start -w backend",
+    "typecheck": "npm run typecheck -w backend && npm run typecheck -w frontend",
+    "test": "npm run test -w backend",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "concurrently": "^9.1.0",
+    "prisma": "6.19.3",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3"
+  },
+  "engines": { "node": ">=20" }
+}
