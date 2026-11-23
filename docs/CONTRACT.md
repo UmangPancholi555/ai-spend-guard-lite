@@ -96,8 +96,8 @@ JSONL line shape = `ExecutionLogDto`.
 ## File ownership
 | Agent | Owns |
 |---|---|
-| obs-core | `backend/src/modules/{instrumentation,logging,traces,activity}/**`, `backend/tests/{instrumentation,logging,traces,activity}/**` |
-| obs-events | `backend/src/modules/observability/**`, `backend/tests/observability/**` |
+| obs-core | `backend/src/modules/{instrumentation,logging}/**`, `backend/tests/{instrumentation,logging}/**` |
+| obs-events | `backend/src/modules/{observability,traces,activity}/**`, `backend/tests/{observability,traces,activity}/**` |
 | cost-budget | `backend/src/modules/{cost,budgets}/**`, `backend/tests/{cost,budgets}/**` |
 | providers | `backend/src/modules/providers/**`, `backend/tests/providers/**` |
 | core-api | `backend/src/modules/{projects,usage,dashboard}/**`, `backend/tests/{core,projects,usage,dashboard}/**` |

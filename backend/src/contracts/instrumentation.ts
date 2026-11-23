@@ -32,7 +32,7 @@ export interface TraceHandle {
   end(error?: ErrorInfo | unknown): Promise<number>;
 }
 
-export interface Correlation { traceId?: string; spanId?: string; projectId?: string; requestId?: string }
+export interface Correlation { traceId?: string; spanId?: string; projectId?: string; requestId?: string; /** backdate (demo seeding); defaults to now */ at?: Date }
 
 export interface MemoryRecordInput extends Correlation {
   source: Source;
@@ -87,7 +87,7 @@ export interface TaskHandle {
 }
 
 export interface Instrumentation {
-  startTrace(input: { name: string; projectId?: string; requestId?: string; source: Source; attributes?: Record<string, unknown> }): Promise<TraceHandle>;
+  startTrace(input: { name: string; projectId?: string; requestId?: string; source: Source; attributes?: Record<string, unknown>; at?: Date }): Promise<TraceHandle>;
   recordMemory(i: MemoryRecordInput): Promise<string>;   // returns operationId
   recordBus(i: BusRecordInput): Promise<string>;         // returns operationId
   recordTool(i: ToolRecordInput): Promise<void>;
