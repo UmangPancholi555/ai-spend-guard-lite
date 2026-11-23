@@ -18,7 +18,7 @@ export function UtilizationBar({ u, showProject = true }: { u: BudgetUtilization
       <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
         <span className="font-medium">
           {u.budget.name}
-          <span className="ml-2 text-xs font-normal text-slate-500 dark:text-slate-400">
+          <span className="ml-2 text-xs font-normal text-slate-600 dark:text-slate-400">
             {u.budget.period}{showProject ? ` - ${u.budget.projectName ?? 'All projects'}` : ''}
           </span>
         </span>
@@ -35,7 +35,7 @@ export function UtilizationBar({ u, showProject = true }: { u: BudgetUtilization
         ))}
         <div className="absolute inset-y-0 right-0 w-px bg-slate-500/70 dark:bg-slate-300/70" title="100% threshold" />
       </div>
-      <div className="relative mt-0.5 h-3 text-[10px] text-slate-500 dark:text-slate-400" aria-hidden="true">
+      <div className="relative mt-0.5 h-3 text-[10px] text-slate-600 dark:text-slate-400" aria-hidden="true">
         <span className="absolute -translate-x-1/2" style={{ left: '50%' }}>50%</span>
         <span className="absolute -translate-x-1/2" style={{ left: '80%' }}>80%</span>
         <span className="absolute right-0">100%</span>
@@ -47,7 +47,7 @@ export function UtilizationBar({ u, showProject = true }: { u: BudgetUtilization
 export function BudgetUtilizationList({ items, showProject = true }: { items: BudgetUtilization[]; showProject?: boolean }) {
   if (items.length === 0) {
     return (
-      <p className="text-sm text-slate-500 dark:text-slate-400" data-testid="budget-empty">
+      <p className="text-sm text-slate-600 dark:text-slate-400" data-testid="budget-empty">
         No active budgets. <Link to="/budgets" className="text-brand-600 underline dark:text-brand-100">Create a budget</Link> to track spend against limits.
       </p>
     );

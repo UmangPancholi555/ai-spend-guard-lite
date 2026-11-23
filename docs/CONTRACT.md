@@ -121,3 +121,5 @@ New shared type files (each owner creates its own, do not edit `shared/types.ts`
 | pricing-ui | `frontend/src/pages/PricingPage.tsx`, `frontend/src/components/pricing/**`; backend `modules/cost/**` only if an endpoint is missing |
 | core-api | `modules/{projects,usage,dashboard}/**` fixes |
 | obs-core | `modules/{instrumentation,logging}/**` (retention scheduler) — coordinate with runtime on `instrumentation/middleware.ts` (runtime owns that one file) |
+
+> NOTE (final): the addendum above is the wave-2 plan. Final behaviour is documented in docs/{ARCHITECTURE,API,SECURITY,DATABASE,IMPLEMENTATION-STATUS}.md.

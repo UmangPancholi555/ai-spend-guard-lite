@@ -3,6 +3,7 @@ import request from 'supertest';
 import type { TestCtx } from '../helpers/testApp';
 import { ADMIN, closeAuthApp, cookieValue, login, newAuthApp, sessionCookie, setupAdmin } from './helpers';
 import { sha256 } from '../../src/utils/ids';
+import { getAuthCore } from '../../src/modules/auth/core';
 
 let ctx: TestCtx;
 beforeAll(async () => {
@@ -112,11 +113,24 @@ describe('password change', () => {
     await s.agent.post('/api/auth/password').send({ currentPassword: ADMIN.password, newPassword: next }).expect(403); // no csrf
     await s.agent.post('/api/auth/password').set(h).send({ currentPassword: 'nope-nope-nope-1', newPassword: next }).expect(403)
       .then(r => expect(r.body.error.code).toBe('INVALID_CURRENT_PASSWORD'));
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { username: 'admin' } })).failedAttempts).toBe(1);
     await s.agent.post('/api/auth/password').set(h).send({ currentPassword: ADMIN.password, newPassword: 'short' }).expect(400);
     await s.agent.post('/api/auth/password').set(h).send({ currentPassword: ADMIN.password, newPassword: 'my-admin-secret-1' }).expect(400); // contains username
     await s.agent.post('/api/auth/password').set(h).send({ currentPassword: ADMIN.password, newPassword: ADMIN.password }).expect(400);
     await s.agent.post('/api/auth/password').set(h).send({ currentPassword: ADMIN.password, newPassword: 'password123456' }).expect(400);
+  });
+
+  it('wrong current-password attempts lock password changes for that (user, IP) after 5 - even the right password is refused', async () => {
+    const s = await login(ctx, ADMIN);
+    const h = { 'X-CSRF-Token': s.csrf };
+    const wrong = { currentPassword: 'nope-nope-nope-2', newPassword: 'Another-Fresh-Phrase-81' };
+    // one wrong attempt was made in the previous test; four more reach the threshold
+    for (let i = 0; i < 4; i++) await s.agent.post('/api/auth/password').set(h).send(wrong).expect(403);
+    const locked = await s.agent.post('/api/auth/password').set(h).send({ currentPassword: ADMIN.password, newPassword: 'Another-Fresh-Phrase-81' }).expect(429);
+    expect(locked.body.error.code).toBe('ACCOUNT_LOCKED');
+    expect(Number(locked.headers['retry-after'])).toBeGreaterThan(0);
+    // logging in is unaffected by password-change failures
+    await login(ctx, ADMIN);
+    getAuthCore(ctx.deps).clearUserLocks('admin'); // what an admin unlock / reset does
   });
 
   it('changes the password, keeps the current session and kills ALL other sessions', async () => {

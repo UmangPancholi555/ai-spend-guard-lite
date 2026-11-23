@@ -137,7 +137,7 @@ export function LevelBadge({ level }: { level: LogLevel | 'INFO' | 'WARN' | 'ERR
 export { StatusBadge };
 
 export function TraceLink({ traceId }: { traceId: string | null | undefined }) {
-  if (!traceId) return <span className="text-slate-400">-</span>;
+  if (!traceId) return <span className="text-slate-600 dark:text-slate-400">-</span>;
   return (
     <Link to={`/traces/${encodeURIComponent(traceId)}`} title={traceId} data-testid="trace-link"
       className="inline-block max-w-[9rem] truncate align-bottom font-mono text-xs text-brand-600 hover:underline dark:text-brand-100">
@@ -162,7 +162,7 @@ export function StackBlock({ stack, testId }: { stack: string | null | undefined
 }
 
 export function Meta({ data, max = 60 }: { data: Record<string, unknown> | null | undefined; max?: number }) {
-  if (!data || Object.keys(data).length === 0) return <span className="text-slate-400">-</span>;
+  if (!data || Object.keys(data).length === 0) return <span className="text-slate-600 dark:text-slate-400">-</span>;
   const s = JSON.stringify(data);
   return <span className="font-mono text-xs" title={s}>{s.length > max ? `${s.slice(0, max)}...` : s}</span>;
 }
@@ -170,7 +170,7 @@ export function Meta({ data, max = 60 }: { data: Record<string, unknown> | null 
 export function KeyVal({ k, children }: { k: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{k}</dt>
+      <dt className="text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">{k}</dt>
       <dd className="mt-0.5 break-words text-sm">{children}</dd>
     </div>
   );
@@ -233,15 +233,15 @@ export function ExpandableRow({ cells, detail, testId, tone }: { cells: ReactNod
 interface ListState<T> { data: { data: T[]; pagination: Pagination } | undefined; error: Error | undefined; loading: boolean }
 
 /** Table + loading/error/empty + pagination for list endpoints. `row` returns <tr> element(s). */
-export function PagedTable<T>({ state, head, row, onPage, emptyMessage, testId }: {
-  state: ListState<T>; head: string[]; row: (item: T) => ReactNode; onPage: (n: number) => void; emptyMessage: string; testId?: string;
+export function PagedTable<T>({ state, head, row, onPage, emptyMessage, emptyAction, testId }: {
+  state: ListState<T>; head: string[]; row: (item: T) => ReactNode; onPage: (n: number) => void; emptyMessage: string; emptyAction?: ReactNode; testId?: string;
 }) {
   if (state.error) return <ErrorBox error={state.error} />;
   if (!state.data) return <Loading />;
   const { data, pagination } = state.data;
   return (
     <div data-testid={testId} aria-busy={state.loading} className={state.loading ? 'opacity-60 transition-opacity' : undefined}>
-      <Table head={head} empty={data.length === 0 ? <EmptyState message={emptyMessage} /> : undefined}>
+      <Table head={head} empty={data.length === 0 ? <EmptyState message={emptyMessage} action={emptyAction} /> : undefined}>
         {data.map(row)}
       </Table>
       <PaginationBar p={pagination} onPage={onPage} />

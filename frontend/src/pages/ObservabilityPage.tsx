@@ -5,6 +5,7 @@ import PageHeader from '../components/ui/PageHeader';
 import { Button, inputCls } from '../components/ui/Button';
 import { Card, StatCard } from '../components/ui/Card';
 import { Async } from '../components/ui/State';
+import { LastUpdated, useRefreshedAt } from '../components/ui/LastUpdated';
 import { SourceBadge, StatusBadge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/Table';
 import { api } from '../lib/api';
@@ -29,6 +30,7 @@ export default function ObservabilityPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const from = useMemo(() => new Date(Date.now() - Number(days) * 86_400_000).toISOString(), [days, tick]);
   const overview = useAsync(() => api.get<ObservabilityOverview>('/observability/overview', { from }), [from]);
+  const refreshedAt = useRefreshedAt(overview.data);
 
   return (
     <div className="space-y-6">
@@ -40,11 +42,12 @@ export default function ObservabilityPage() {
                 {RANGES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </Field>
+            <LastUpdated at={refreshedAt} />
             <Button variant="secondary" onClick={() => setTick(t => t + 1)} data-testid="obs-refresh">Refresh</Button>
           </>
         )} />
 
-      <Async loading={overview.loading && !overview.data} error={overview.error}>
+      <Async loading={overview.loading && !overview.data} error={overview.error} skeleton="cards">
         {overview.data && (() => {
           const o = overview.data;
           const t = o.totals;
@@ -63,7 +66,7 @@ export default function ObservabilityPage() {
                 <StatCard label="Tool calls" value={fmtInt(t.toolCalls)} testId="obs-tool-calls" />
                 <StatCard label="Context updates" value={fmtInt(t.contextUpdates)} testId="obs-context-updates" />
                 <Card>
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Actual vs simulated</div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">Actual vs simulated</div>
                   <div className="mt-2 flex h-3 overflow-hidden rounded-full bg-amber-300 dark:bg-amber-500/70" role="img" aria-label={`${fmtInt(o.bySource.actual)} actual, ${fmtInt(o.bySource.simulated)} simulated`} data-testid="obs-source-bar">
                     <div className="h-full bg-purple-500" style={{ width: `${actualPct}%` }} />
                   </div>
@@ -73,7 +76,7 @@ export default function ObservabilityPage() {
                   </div>
                 </Card>
               </section>
-              <p className="-mt-3 text-xs text-slate-500 dark:text-slate-400">
+              <p className="-mt-3 text-xs text-slate-600 dark:text-slate-400">
                 Counts cover {fmtDateTime(o.range.from)} to {fmtDateTime(o.range.to)}. Simulated counts come from the demo generator; they are not real memory, tool or context activity.
               </p>
 
@@ -83,7 +86,7 @@ export default function ObservabilityPage() {
                     <ul className="divide-y divide-slate-100 dark:divide-slate-800" data-testid="obs-recent-errors">
                       {o.recentErrors.map(e => (
                         <li key={e.id} className="flex flex-col gap-1 py-2 text-sm" data-testid="obs-error-item">
-                          <div className="flex flex-wrap items-center gap-2"><span className="font-medium">{e.operation}</span>{e.errorCategory && <span className="text-xs text-slate-500 dark:text-slate-400">{e.errorCategory}</span>}<SourceBadge source={e.source} /><span className="ml-auto text-xs text-slate-500 dark:text-slate-400">{fmtDateTime(e.ts)}</span></div>
+                          <div className="flex flex-wrap items-center gap-2"><span className="font-medium">{e.operation}</span>{e.errorCategory && <span className="text-xs text-slate-600 dark:text-slate-400">{e.errorCategory}</span>}<SourceBadge source={e.source} /><span className="ml-auto text-xs text-slate-600 dark:text-slate-400">{fmtDateTime(e.ts)}</span></div>
                           <div className="truncate text-red-700 dark:text-red-300" title={e.errorMessage ?? e.message}>{e.errorMessage ?? e.message}</div>
                           <TraceLink traceId={e.traceId} />
                         </li>
@@ -98,7 +101,7 @@ export default function ObservabilityPage() {
                         <li key={tr.traceId} className="flex flex-wrap items-center gap-2 py-2 text-sm" data-testid="obs-trace-item">
                           <Link to={`/traces/${encodeURIComponent(tr.traceId)}`} className="font-medium text-brand-600 hover:underline dark:text-brand-100">{tr.name}</Link>
                           <StatusBadge status={tr.status} /><SourceBadge source={tr.source} />
-                          <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">{fmtMs(tr.durationMs)} - {tr.spanCount} spans - {fmtDateTime(tr.startedAt)}</span>
+                          <span className="ml-auto text-xs text-slate-600 dark:text-slate-400">{fmtMs(tr.durationMs)} - {tr.spanCount} spans - {fmtDateTime(tr.startedAt)}</span>
                         </li>
                       ))}
                     </ul>

@@ -5,6 +5,7 @@ import { seedCatalog } from './database/catalog';
 import { buildApp, createDeps } from './app';
 import { bootstrapAdmin } from './modules/auth';
 import { startRetentionScheduler } from './modules/logging';
+import { flushLogs } from './modules/instrumentation';
 
 const isLoopback = (h: string) => h === '127.0.0.1' || h === 'localhost' || h === '::1';
 
@@ -31,7 +32,13 @@ async function main() {
     console.log(`AI Spend Guard Lite API listening on http://${host}:${config.port}  [DEMO / SIMULATED - no external AI requests]  auth=${config.auth.enabled ? 'on' : 'OFF'}`);
   });
   const retention = startRetentionScheduler(deps);
-  const shutdown = async () => { retention.stop(); server.close(); await prisma.$disconnect(); process.exit(0); };
+  const shutdown = async () => {
+    retention.stop();
+    server.close();
+    try { await flushLogs(); } catch { /* best effort */ }
+    await prisma.$disconnect();
+    process.exit(0);
+  };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }

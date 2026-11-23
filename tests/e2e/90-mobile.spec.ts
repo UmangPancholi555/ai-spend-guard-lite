@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/test';
 import { NAV, expectNoHorizontalOverflow, watchConsole, apiCreateProject, apiGet, apiRequest, uniq } from './support/helpers';
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });

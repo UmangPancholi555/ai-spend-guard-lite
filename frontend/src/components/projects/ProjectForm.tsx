@@ -34,10 +34,10 @@ export default function ProjectForm({ initial, mode, onSubmit, onCancel }: {
     <form onSubmit={submit} className="space-y-4" noValidate data-testid="project-form">
       <div>
         <label htmlFor="project-name" className="mb-1 block text-sm font-medium">Name</label>
-        <input id="project-name" className={`${inputCls} w-full`} value={name} onChange={e => setName(e.target.value)} maxLength={200}
+        <input id="project-name" className={`${inputCls} w-full`} value={name} onChange={e => setName(e.target.value)} onBlur={() => setNameErr(name.trim() ? (name.trim().length > 80 ? 'Name must be 80 characters or fewer.' : undefined) : 'Name is required.')} maxLength={200}
           aria-invalid={!!nameErr} aria-describedby={nameErr ? 'project-name-err' : undefined} autoFocus data-testid="project-name-input" />
-        {nameErr && <p id="project-name-err" className="mt-1 text-xs text-red-600 dark:text-red-400" data-testid="project-name-error">{nameErr}</p>}
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">1-80 characters, unique (case-insensitive).</p>
+        {nameErr && <p id="project-name-err" className="mt-1 text-xs text-red-700 dark:text-red-400" data-testid="project-name-error">{nameErr}</p>}
+        <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">1-80 characters, unique (case-insensitive).</p>
       </div>
       <div>
         <label htmlFor="project-desc" className="mb-1 block text-sm font-medium">Description (optional)</label>
@@ -45,7 +45,7 @@ export default function ProjectForm({ initial, mode, onSubmit, onCancel }: {
       </div>
       <label className="flex items-start gap-2 text-sm">
         <input type="checkbox" className="mt-0.5" checked={isTest} onChange={e => setIsTest(e.target.checked)} data-testid="project-test-checkbox" />
-        <span>Test project <span className="block text-xs text-slate-500 dark:text-slate-400">Only test projects can be deleted.</span></span>
+        <span>Test project <span className="block text-xs text-slate-600 dark:text-slate-400">Only test projects can be deleted.</span></span>
       </label>
       {error && <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200" data-testid="project-form-error">{error}</p>}
       <div className="flex justify-end gap-2">

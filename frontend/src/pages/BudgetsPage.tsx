@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Async } from '../components/ui/State';
 import { EmptyState } from '../components/ui/Table';
+import { useToast } from '../components/ui/Toast';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useApi';
 import AlertHistory, { ThresholdChips } from '../components/budgets/AlertHistory';
@@ -16,6 +17,7 @@ export default function BudgetsPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [projectId, setProjectId] = useState('');
   const bump = () => setReloadKey(k => k + 1);
+  const toast = useToast();
 
   const projects = useAsync(async () => (await api.list<ProjectWithUsage>('/projects', { includeTest: true, pageSize: 200 })).data, []);
   const budgets = useAsync(() => api.get<BudgetDto[]>('/budgets', { projectId }), [projectId, reloadKey]);
@@ -32,8 +34,10 @@ export default function BudgetsPage() {
     try {
       const created = await api.post<BudgetAlertDto[]>('/budgets/evaluate');
       setEvalResult(created);
+      if (created.length > 0) toast.success(`${created.length} new alert${created.length === 1 ? '' : 's'} created`);
+      else toast.info('Evaluation finished', 'No new alerts: every budget is up to date.');
       bump();
-    } catch (e) { setEvalError((e as Error).message); setEvalResult(undefined); } finally { setEvaluating(false); }
+    } catch (e) { setEvalError((e as Error).message); setEvalResult(undefined); toast.error('Evaluation failed', (e as Error).message); } finally { setEvaluating(false); }
   }
 
   const utilById = new Map((utils.data ?? []).map(u => [u.budget.id, u]));
@@ -48,13 +52,13 @@ export default function BudgetsPage() {
       {evalResult && (
         <div role="status" data-testid="evaluate-result" className="mb-4 rounded-md border border-slate-200 bg-white p-3 text-sm dark:border-slate-800 dark:bg-slate-900">
           <strong data-testid="evaluate-count">{evalResult.length}</strong> new alert{evalResult.length === 1 ? '' : 's'} created.
-          {evalResult.length === 0 && <span className="text-slate-500 dark:text-slate-400"> Every budget is already up to date for its current period.</span>}
+          {evalResult.length === 0 && <span className="text-slate-600 dark:text-slate-400"> Every budget is already up to date for its current period.</span>}
           {evalResult.length > 0 && (
             <ul className="mt-2 space-y-1">
               {evalResult.map(a => (
                 <li key={a.id} className="flex flex-wrap items-center gap-2" data-testid="evaluate-alert">
                   <ThresholdChips active={a.threshold} /> <span>{a.budgetName}</span>
-                  <span className="text-slate-500 dark:text-slate-400">({a.projectName ?? 'Global'}, {a.period})</span>
+                  <span className="text-slate-600 dark:text-slate-400">({a.projectName ?? 'Global'}, {a.period})</span>
                 </li>
               ))}
             </ul>
@@ -69,9 +73,10 @@ export default function BudgetsPage() {
         <SelectFilter label="Project" value={projectId} onChange={setProjectId} allLabel="All projects" testId="budgets-filter-project"
           options={projectList.map(p => ({ value: p.id, label: p.name }))} />
       </div>
-      <Async loading={budgets.loading && !budgets.data} error={budgets.error ?? utils.error}>
+      <Async loading={budgets.loading && !budgets.data} error={budgets.error ?? utils.error} skeleton="table" reload={() => { budgets.reload(); utils.reload(); }}>
         {budgets.data && budgets.data.length === 0
-          ? <Card><EmptyState message="No budgets yet. Create one above to start tracking utilization and alerts." /></Card>
+          ? <Card><EmptyState message="No budgets yet. Create one above to start tracking utilization and alerts."
+              action={<Button variant="secondary" data-testid="budget-empty-cta" onClick={() => document.querySelector<HTMLInputElement>('[data-testid="budget-create-name"]')?.focus()}>Create your first budget</Button>} /></Card>
           : (
             <ul className="space-y-3" data-testid="budget-list">
               {(budgets.data ?? []).map(b => <BudgetRow key={b.id} budget={b} util={utilById.get(b.id)} reloadKey={reloadKey} onChanged={bump} />)}

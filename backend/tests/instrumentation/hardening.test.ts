@@ -50,13 +50,13 @@ describe('log injection hardening', () => {
 });
 
 describe('JSONL rotation / size cap', () => {
-  it('rolls over to execution-<day>.<n>.jsonl, never exceeds the cap (except one oversized line), loses no lines', () => {
+  it('rolls over to execution-<day>.<n>.jsonl, never exceeds the cap (except one oversized line), loses no lines', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsonl-rot-'));
     try {
-      const w = createJsonlWriter(dir, 2000);
-      for (let i = 0; i < 40; i++) w.append(dto({ id: `id${i}`, message: 'x'.repeat(100) }));
-      w.append(dto({ id: 'huge', message: 'y'.repeat(5000) })); // larger than the cap by itself
-      w.append(dto({ id: 'next-day', ts: '2026-04-02T00:00:01.000Z' }));
+      const w = createJsonlWriter(dir, { maxFileBytes: 2000, flushIntervalMs: 0 });
+      for (let i = 0; i < 40; i++) await w.append(dto({ id: `id${i}`, message: 'x'.repeat(100) }));
+      await w.append(dto({ id: 'huge', message: 'y'.repeat(5000) })); // larger than the cap by itself
+      await w.append(dto({ id: 'next-day', ts: '2026-04-02T00:00:01.000Z' }));
       const files = fs.readdirSync(dir).sort();
       expect(files.length).toBeGreaterThan(4);
       expect(files.every(f => JSONL_FILE_RE.test(f))).toBe(true);
@@ -73,7 +73,7 @@ describe('JSONL rotation / size cap', () => {
       }
       expect(total).toBe(42);
       // a new writer (restart) continues without exceeding the cap or losing data
-      createJsonlWriter(dir, 2000).append(dto({ id: 'after-restart' }));
+      await createJsonlWriter(dir, { maxFileBytes: 2000, flushIntervalMs: 0 }).append(dto({ id: 'after-restart' }));
       expect(fs.readdirSync(dir).map(f => fs.readFileSync(path.join(dir, f), 'utf8')).join('')).toContain('after-restart');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });

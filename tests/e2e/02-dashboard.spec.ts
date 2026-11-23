@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/test';
 import { apiGet, watchConsole } from './support/helpers';
 
 test.describe('dashboard', () => {

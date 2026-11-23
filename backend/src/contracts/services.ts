@@ -34,6 +34,8 @@ export interface AppConfig {
   security: {
     /** requests per minute per IP for /api; 0 disables */
     rateLimitPerMinute: number;
+    /** extra allowed Host header names (hostname only, no port) besides localhost/127.0.0.1/[::1]; from ALLOWED_HOSTS */
+    allowedHosts: string[];
   };
 }
 

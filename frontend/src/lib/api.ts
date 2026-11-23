@@ -1,8 +1,23 @@
 import type { ApiList, ApiOne, Pagination } from '@shared/types';
 
 export class ApiRequestError extends Error {
-  constructor(public status: number, public code: string, message: string, public details?: unknown) { super(message); }
+  /** `x-request-id` response header, when the server sent one (quote it when reporting a problem) */
+  requestId?: string;
+  /** seconds from the `Retry-After` header (429/503), when present */
+  retryAfterSec?: number;
+  constructor(public status: number, public code: string, message: string, public details?: unknown, extra?: { requestId?: string; retryAfterSec?: number }) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.requestId = extra?.requestId;
+    this.retryAfterSec = extra?.retryAfterSec;
+  }
+  /** true when no HTTP response was received at all (offline / server down / timeout) */
+  get isNetwork() { return this.status === 0; }
 }
+
+/** every request is aborted after this long (ms) */
+export const REQUEST_TIMEOUT_MS = 30_000;
+const RETRY_DELAY_MS = 400;
 
 export type Query = Record<string, string | number | boolean | undefined | null>;
 export function qs(q?: Query): string {
@@ -29,19 +44,66 @@ const isUnsafe = (m: string) => m !== 'GET' && m !== 'HEAD' && m !== 'OPTIONS';
 /** endpoints that legitimately answer 401/403 as part of the login flow itself */
 const AUTH_ENTRY = /^\/auth\/(login|setup|status)(\?|$)/;
 
+/** fetch with a hard timeout; network failures and timeouts become ApiRequestError(status 0) */
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: ctl.signal });
+  } catch (e) {
+    if (ctl.signal.aborted) {
+      throw new ApiRequestError(0, 'TIMEOUT', `The server took longer than ${REQUEST_TIMEOUT_MS / 1000} seconds to respond. Please retry.`);
+    }
+    throw new ApiRequestError(0, 'NETWORK_ERROR', 'Cannot reach the local server. Check that it is running, then retry.');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+/** parse an error/ok body that may not be JSON (proxy HTML pages, plain text, empty) */
+async function readBody(res: Response): Promise<{ json: any; text: string }> {
+  let text = '';
+  try { text = await res.text(); } catch { /* body unreadable */ }
+  if (!text) return { json: null, text };
+  try { return { json: JSON.parse(text), text }; } catch { return { json: null, text }; }
+}
+
+function plainMessage(res: Response, text: string): string {
+  const t = text.trim();
+  // HTML error pages (nginx/vite proxy) are not useful to show; plain short text is
+  if (t && !/^</.test(t)) return t.length > 200 ? `${t.slice(0, 200)}...` : t;
+  return res.status >= 500 ? `The server returned an error (HTTP ${res.status}).` : res.statusText || `Request failed (HTTP ${res.status}).`;
+}
+
 async function request<T>(method: string, path: string, body?: unknown, retriedCsrf = false): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (isUnsafe(method) && csrfToken) headers['X-CSRF-Token'] = csrfToken;
-  const res = await fetch(`/api${path}`, {
+  const init: RequestInit = {
     method,
     credentials: 'same-origin',
     headers: Object.keys(headers).length ? headers : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  if (res.status === 204) return undefined as T;
-  let json: any = null;
-  try { json = await res.json(); } catch { /* non-json */ }
+  };
+  // idempotent reads get exactly one automatic retry on a network failure or a 502/503
+  const maxAttempts = method === 'GET' ? 2 : 1;
+  let res!: Response;
+  let parsed!: { json: any; text: string };
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      res = await fetchWithTimeout(`/api${path}`, init);
+    } catch (e) {
+      if (attempt < maxAttempts && e instanceof ApiRequestError && e.code === 'NETWORK_ERROR') { await sleep(RETRY_DELAY_MS); continue; }
+      throw e;
+    }
+    if (res.status === 204) return undefined as T;
+    parsed = await readBody(res);
+    if (attempt < maxAttempts && (res.status === 502 || res.status === 503)) { await sleep(RETRY_DELAY_MS); continue; }
+    break;
+  }
+  const { json, text } = parsed;
   if (!res.ok) {
     const code: string = json?.error?.code ?? 'HTTP_ERROR';
     if (res.status === 403 && code === 'CSRF_INVALID' && isUnsafe(method) && !retriedCsrf && !AUTH_ENTRY.test(path)) {
@@ -57,7 +119,14 @@ async function request<T>(method: string, path: string, body?: unknown, retriedC
       csrfToken = undefined;
       unauthorizedHandler?.();
     }
-    throw new ApiRequestError(res.status, code, json?.error?.message ?? res.statusText, json?.error?.details);
+    const ra = Number(res.headers.get('retry-after'));
+    throw new ApiRequestError(res.status, code, json?.error?.message ?? plainMessage(res, text), json?.error?.details, {
+      requestId: res.headers.get('x-request-id') ?? undefined,
+      retryAfterSec: Number.isFinite(ra) && ra > 0 ? Math.ceil(ra) : undefined,
+    });
+  }
+  if (json === null) {
+    throw new ApiRequestError(res.status, 'BAD_RESPONSE', 'The server sent a response this app cannot read.', undefined, { requestId: res.headers.get('x-request-id') ?? undefined });
   }
   return json as T;
 }

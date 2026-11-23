@@ -1,3 +1,4 @@
+import { scopeActivityWhere } from '../auth/visibility';
 import { Router } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
@@ -64,7 +65,7 @@ export function createDashboardRouter(deps: AppDeps): Router {
       dailyBuckets(prisma, from, tomorrow, projectId),
       computeBudgetUtilization(prisma, now, projectId),
       prisma.activityEvent.findMany({
-        where: projWhere, include: { project: { select: { name: true } } },
+        where: scopeActivityWhere(req, projWhere), include: { project: { select: { name: true } } },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 10,
       }),
       prisma.usageEvent.findMany({

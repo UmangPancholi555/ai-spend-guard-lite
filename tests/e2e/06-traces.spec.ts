@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/test';
 import { apiCreateProject, apiGet, apiRequest, fetchExport, jsonlLines, parseCsv, uniq, watchConsole } from './support/helpers';
 
 test.describe('traces & execution timeline', () => {
@@ -39,15 +39,22 @@ test.describe('traces & execution timeline', () => {
     await expect(page.locator('[data-testid="timeline-source"][data-source="SIMULATED"]').first()).toHaveText('DEMO / SIMULATED');
     await expect(page.getByTestId('timeline-simulated-note')).toContainText(`${simulated} of ${api.timeline.length} entries are DEMO / SIMULATED`);
 
-    // the correlated steps are all there, simulated ones never labelled ACTUAL
+    // the correlated steps are all there; the demo generator's steps are always labelled SIMULATED, never ACTUAL
     const steps = page.getByTestId('timeline-step');
     for (const label of ['Execution started', 'Context initialized', 'Memory injection started', 'Memory injection completed', 'Bus operation executed',
       'Tool call initiated', 'Tool call failed', 'Tool call completed', 'Response generated', 'Execution completed']) {
       await expect(steps.filter({ hasText: new RegExp(`^${label}$`) }).first(), label).toBeVisible();
     }
     for (const step of ['context.initialized', 'memory.injection.started', 'bus.operation', 'tool.call.initiated']) {
-      await expect(page.locator(`[data-testid="timeline-entry"][data-step="${step}"]`).first()).toHaveAttribute('data-source', 'SIMULATED');
+      await expect(page.locator(`[data-testid="timeline-entry"][data-step="${step}"][data-source="SIMULATED"]`).first(), `${step} (simulated)`).toBeVisible();
     }
+    // the real runtime (context manager, pricing/budget tool calls, event bus) ALSO recorded ACTUAL events on the same trace
+    for (const step of ['context.initialized', 'tool.call.initiated']) {
+      expect(api.timeline.some((e: any) => e.step === step && e.source === 'ACTUAL'), `${step} (actual)`).toBe(true);
+      await expect(page.locator(`[data-testid="timeline-entry"][data-step="${step}"][data-source="ACTUAL"]`).first()).toBeVisible();
+    }
+    // no memory items on this project -> memory injection exists ONLY as the simulated demo (nothing is fabricated as actual)
+    expect(api.timeline.some((e: any) => e.step.startsWith('memory.injection') && e.source === 'ACTUAL')).toBe(false);
     for (const step of ['execution.started', 'execution.completed', 'response.generated']) {
       await expect(page.locator(`[data-testid="timeline-entry"][data-step="${step}"]`).first()).toHaveAttribute('data-source', 'ACTUAL');
     }
@@ -69,21 +76,27 @@ test.describe('traces & execution timeline', () => {
     await spans.first().getByRole('button').click();
     await expect(page.getByTestId('span-detail')).toBeVisible();
 
-    // correlated events panel (compact, scoped to this trace)
+    // correlated events panel (compact, scoped to this trace): every row is honestly labelled ACTUAL or DEMO / SIMULATED
     const explorer = page.getByTestId('event-explorer');
+    const rows = explorer.getByTestId('event-row');
+    const simRows = rows.filter({ hasText: 'DEMO / SIMULATED' });
     await expect(explorer.getByTestId('event-panel-memory')).toBeVisible();
-    await expect(explorer.getByTestId('event-row')).toHaveCount(2); // STARTED + COMPLETED
-    await expect(explorer.getByTestId('event-row').first()).toContainText('DEMO / SIMULATED');
+    await expect(simRows).toHaveCount(2); // STARTED + COMPLETED (simulated demo); no real memory items -> no ACTUAL memory rows
+    await expect(rows).toHaveCount(2);
     await explorer.getByTestId('event-tab-tool').click();
-    await expect(explorer.getByTestId('event-row')).toHaveCount(3); // web_search x2 attempts + read_file
+    await expect(simRows).toHaveCount(3); // web_search x2 attempts + read_file (simulated)
+    await expect(rows.filter({ hasNotText: 'DEMO / SIMULATED' }).filter({ hasText: 'ACTUAL' })).not.toHaveCount(0); // pricing.lookup / budget.status
     await explorer.getByTestId('event-tab-context').click();
-    await expect(explorer.getByTestId('event-row')).toHaveCount(4);
+    await expect(simRows).toHaveCount(4);
+    await expect(rows.filter({ hasNotText: 'DEMO / SIMULATED' }).filter({ hasText: 'ACTUAL' })).not.toHaveCount(0);
     await explorer.getByTestId('event-tab-bus').click();
-    await expect(explorer.getByTestId('event-row')).toHaveCount(2);
+    await expect(simRows).toHaveCount(2);
     for (const t of ['bus', 'tool', 'context', 'memory']) {
       await explorer.getByTestId(`event-tab-${t}`).click();
-      await expect(explorer.getByTestId('event-row').first()).toContainText('DEMO / SIMULATED');
-      await expect(explorer.getByTestId('event-row').first()).not.toContainText('ACTUAL');
+      await expect(rows.first()).toBeVisible();
+      await expect(rows.filter({ hasNotText: /ACTUAL|DEMO \/ SIMULATED/ })).toHaveCount(0);
+      // a SIMULATED row is never also labelled ACTUAL
+      await expect(simRows.filter({ hasText: /\bACTUAL\b/ })).toHaveCount(0);
     }
     expect(errors, errors.join('\n')).toEqual([]);
   });

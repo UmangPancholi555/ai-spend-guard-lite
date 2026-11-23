@@ -1,13 +1,17 @@
 /**
- * Non-interactive user creation:
- *   USERNAME=alice PASSWORD='long passphrase here' npm run user:create
- *   npm run user:create -- --username alice --role VIEWER --password-stdin < pw.txt
- * The password is read from env PASSWORD, stdin (--password-stdin) or --password (discouraged: visible in `ps`/shell history).
- * It is never echoed or logged. Exit code 0 on success, 1 on any failure.
+ * Non-interactive account administration (works offline, directly on the database - the recovery path when everyone is locked out):
+ *   USERNAME=alice PASSWORD='long passphrase here' npm run user:create            (ROLE=ADMIN|VIEWER, default ADMIN)
+ *   USERNAME=alice npm run user:unlock                                            (clears failed-attempt counters / lock)
+ *   USERNAME=alice NEW_PASSWORD='another long passphrase' npm run user:reset-password   (also signs the user out everywhere)
+ * Secrets come from env (PASSWORD / NEW_PASSWORD), stdin (--password-stdin) or --password / --new-password (discouraged: visible in
+ * `ps`/shell history). They are never echoed or logged. Exit code 0 on success, 1 on any failure.
+ * Note: a running server also keeps per-(user, IP) locks in memory; those expire on their own (15 min) or on restart.
  */
 import fs from 'node:fs';
 import { createPrisma } from '../../database/client';
-import { createUser, UserInputError } from './users';
+import { createUser, resetUserPassword, unlockUser, UserInputError } from './users';
+import { createInstrumentation } from '../instrumentation';
+import { loadConfig } from '../../config';
 import type { UserRole } from '../../../../shared/auth';
 
 function arg(name: string): string | undefined {
@@ -19,28 +23,58 @@ function arg(name: string): string | undefined {
 }
 const flag = (name: string) => process.argv.slice(2).includes(`--${name}`);
 
-async function main() {
-  const username = arg('username') ?? process.env.USERNAME;
-  let password = process.env.PASSWORD;
-  if (flag('password-stdin')) password = fs.readFileSync(0, 'utf8').replace(/\r?\n$/, '');
-  else if (arg('password') !== undefined) {
-    password = arg('password');
-    console.error('warning: --password is visible in process listings and shell history; prefer env PASSWORD or --password-stdin.');
+function secret(envName: string, argName: string): string | undefined {
+  if (flag('password-stdin')) return fs.readFileSync(0, 'utf8').replace(/\r?\n$/, '');
+  const fromArg = arg(argName);
+  if (fromArg !== undefined) {
+    console.error(`warning: --${argName} is visible in process listings and shell history; prefer env ${envName} or --password-stdin.`);
+    return fromArg;
   }
-  const role = (arg('role') ?? process.env.ROLE ?? 'ADMIN').toUpperCase();
-  if (!username || !password) throw new UserInputError('Provide USERNAME and PASSWORD (env), or --username with --password-stdin.');
-  if (role !== 'ADMIN' && role !== 'VIEWER') throw new UserInputError('ROLE must be ADMIN or VIEWER.');
+  return process.env[envName];
+}
+
+async function audit(prisma: ReturnType<typeof createPrisma>, type: string, message: string, metadata: Record<string, unknown>) {
+  try {
+    const instr = createInstrumentation(prisma, { logDir: loadConfig().logDir });
+    await instr.recordActivity({ type, level: 'INFO', source: 'ACTUAL', message, metadata: { ...metadata, via: 'cli' } });
+  } catch { /* auditing is best effort offline */ }
+}
+
+async function main() {
+  const first = process.argv[2];
+  const command = first && !first.startsWith('--') ? first : 'create';
+  const username = arg('username') ?? process.env.USERNAME;
+  if (!username) throw new UserInputError('Provide USERNAME (env) or --username.');
   const prisma = createPrisma();
   try {
-    const u = await createUser(prisma, username, password, role as UserRole);
-    console.log(`Created ${u.role} user "${u.username}" (id ${u.id}).`);
+    if (command === 'create') {
+      const password = secret('PASSWORD', 'password');
+      const role = (arg('role') ?? process.env.ROLE ?? 'ADMIN').toUpperCase();
+      if (!password) throw new UserInputError('Provide PASSWORD (env) or --password-stdin.');
+      if (role !== 'ADMIN' && role !== 'VIEWER') throw new UserInputError('ROLE must be ADMIN or VIEWER.');
+      const u = await createUser(prisma, username, password, role as UserRole);
+      await audit(prisma, 'auth.user.created', `User "${u.username}" created`, { targetUsername: u.username, targetUserId: u.id, role: u.role });
+      console.log(`Created ${u.role} user "${u.username}" (id ${u.id}).`);
+    } else if (command === 'unlock') {
+      const u = await unlockUser(prisma, username);
+      await audit(prisma, 'auth.user.updated', `User "${u.username}" unlocked`, { targetUsername: u.username, targetUserId: u.id, changes: ['unlock'] });
+      console.log(`Unlocked user "${u.username}".`);
+    } else if (command === 'reset-password') {
+      const password = secret('NEW_PASSWORD', 'new-password');
+      if (!password) throw new UserInputError('Provide NEW_PASSWORD (env) or --password-stdin.');
+      const u = await resetUserPassword(prisma, username, password);
+      await audit(prisma, 'auth.user.updated', `Password reset for "${u.username}"`, { targetUsername: u.username, targetUserId: u.id, changes: ['password', 'unlock'] });
+      console.log(`Password reset for "${u.username}"; all of their sessions were revoked.`);
+    } else {
+      throw new UserInputError(`Unknown command "${command}" (use create | unlock | reset-password).`);
+    }
   } finally {
     await prisma.$disconnect();
   }
 }
 
 main().catch(e => {
-  const msg = e instanceof UserInputError ? e.message : e instanceof Error && e.message === 'exists' ? 'That username already exists.' : 'Failed to create user.';
-  console.error(`user:create failed: ${msg}`);
+  const msg = e instanceof UserInputError ? e.message : e instanceof Error && e.message === 'exists' ? 'That username already exists.' : 'Operation failed.';
+  console.error(`user command failed: ${msg}`);
   process.exit(1);
 });

@@ -1,6 +1,7 @@
 import type { ExecutionLogDto } from '@shared/types';
 import PageHeader from '../components/ui/PageHeader';
 import { Card } from '../components/ui/Card';
+import { LinkButton } from '../components/ui/Button';
 import { SourceBadge, StatusBadge } from '../components/ui/Badge';
 import {
   ExpandableRow, ExportLinks, FilterBar, JsonBlock, KeyVal, LevelBadge, PagedTable, SOURCE_OPTIONS, SelectFilter, StackBlock, TextFilter, TraceLink, useFilters, useList,
@@ -29,7 +30,7 @@ export default function LogsPage() {
         <TextFilter label="To" type="date" value={f.filters.to} onChange={v => f.setFilter('to', v)} testId="log-filter-to" />
       </FilterBar>
       <Card>
-        <PagedTable state={state} testId="log-table" onPage={f.setPage} emptyMessage="No execution logs match these filters."
+        <PagedTable state={state} testId="log-table" onPage={f.setPage} emptyMessage="No execution logs match these filters." emptyAction={!f.dirty && <LinkButton to="/simulator" testId="logs-empty-cta">Open Request Simulator</LinkButton>}
           head={['Details', 'Time', 'Level', 'Category', 'Event type', 'Operation', 'Status', 'Source', 'Duration', 'Trace']}
           row={l => (
             <ExpandableRow key={l.id} testId="log-row" tone={l.level === 'ERROR' ? 'error' : undefined}
@@ -49,7 +50,7 @@ export default function LogsPage() {
                   {l.errorMessage && <div className="text-sm text-red-700 dark:text-red-300" role="alert">{l.errorCategory ? `${l.errorCategory}: ` : ''}{l.errorMessage}</div>}
                   <StackBlock stack={l.stack} />
                   <div>
-                    <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Attributes (metadata only)</div>
+                    <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">Attributes (metadata only)</div>
                     <JsonBlock data={l.attributes} testId="log-attributes" />
                   </div>
                 </div>

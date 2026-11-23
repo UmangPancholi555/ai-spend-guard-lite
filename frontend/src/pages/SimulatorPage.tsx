@@ -10,12 +10,14 @@ import { useAsync } from '../lib/useApi';
 import DemoBanner from '../components/dashboard/DemoBanner';
 import ResponsePanel from '../components/simulator/ResponsePanel';
 import { errMessage } from '../components/projects/util';
+import { useToast } from '../components/ui/Toast';
 
 const CUSTOM = '__custom__';
-const labelCls = 'mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400';
+const labelCls = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400';
 const errCls = 'rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200';
 
 export default function SimulatorPage() {
+  const toast = useToast();
   const providers = useAsync(() => api.get<ProviderDto[]>('/providers'), []);
   const projects = useAsync(() => api.list<ProjectWithUsage>('/projects', { status: 'ACTIVE', includeTest: true, pageSize: 200 }), []);
   const active = projects.data?.data ?? [];
@@ -75,8 +77,8 @@ export default function SimulatorPage() {
     const body: MockProviderRequest = { projectId, provider, model: effectiveModel, prompt, maxOutputTokens: max, simulateFailure: failure, simulateAgentActivity: agentActivity, injectMemory };
     if (temp !== undefined) body.temperature = temp;
     setBusy(true);
-    try { setResult(await api.post<MockProviderResponse>('/providers/requests', body)); projects.reload(); }
-    catch (err) { setError(errMessage(err)); setResult(undefined); }
+    try { const r = await api.post<MockProviderResponse>('/providers/requests', body); setResult(r); toast[r.status === 'SUCCESS' ? 'success' : 'info']('Simulated request sent', r.status === 'SUCCESS' ? 'Recorded as DEMO / SIMULATED usage.' : 'The simulated provider returned a failure, as requested.'); projects.reload(); }
+    catch (err) { setError(errMessage(err)); setResult(undefined); toast.error('Request failed', errMessage(err)); }
     finally { setBusy(false); }
   }
 
@@ -87,7 +89,7 @@ export default function SimulatorPage() {
     setQuickBusy(true); setQuickErr(undefined);
     try {
       const p = await api.post<ProjectWithUsage>('/projects', { name, isTest: true });
-      projects.reload(); setProjectId(p.id); setQuickName(''); setQuickOpen(false);
+      projects.reload(); setProjectId(p.id); setQuickName(''); setQuickOpen(false); toast.success(`Created project "${p.name}"`);
     } catch (err) { setQuickErr(errMessage(err)); }
     finally { setQuickBusy(false); }
   }
@@ -104,6 +106,7 @@ export default function SimulatorPage() {
         ...(projectId ? { projectId } : {}),
       });
       setSeedMsg(`Created ${r.created} simulated requests.`);
+      toast.success(`Created ${r.created} simulated requests`);
       projects.reload();
     } catch (err) { setSeedErr(errMessage(err)); }
     finally { setSeedBusy(false); }
@@ -116,6 +119,7 @@ export default function SimulatorPage() {
     try {
       const r = await api.post<{ traceId: string }>('/simulations/agent-run', { projectId, simulateFailure: agentFail ? 'error' : 'none' });
       setAgentTrace(r.traceId);
+      toast.success('Simulated agent run recorded', 'Open the trace to see its timeline.');
     } catch (err) { setAgentErr(errMessage(err)); }
     finally { setAgentBusy(false); }
   }
@@ -152,7 +156,7 @@ export default function SimulatorPage() {
                       <input id="sim-quick-name" className={`${inputCls} min-w-0 flex-1`} value={quickName} onChange={e => setQuickName(e.target.value)} data-testid="sim-quick-name" />
                       <Button type="button" onClick={quickCreate as unknown as () => void} disabled={quickBusy} data-testid="sim-quick-submit">{quickBusy ? 'Creating...' : 'Create'}</Button>
                     </div>
-                    {quickErr && <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400" data-testid="sim-quick-error">{quickErr}</p>}
+                    {quickErr && <p role="alert" className="mt-2 text-xs text-red-700 dark:text-red-400" data-testid="sim-quick-error">{quickErr}</p>}
                   </div>
                 )}
 
@@ -175,7 +179,7 @@ export default function SimulatorPage() {
                   <div>
                     <label htmlFor="sim-custom-model" className={labelCls}>Custom model name</label>
                     <input id="sim-custom-model" className={`${inputCls} w-full`} value={customModel} placeholder="e.g. my-experimental-model" onChange={e => setCustomModel(e.target.value)} data-testid="sim-custom-model" />
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Unknown models are accepted; their cost is labeled ESTIMATED (fallback pricing).</p>
+                    <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">Unknown models are accepted; their cost is labeled ESTIMATED (fallback pricing).</p>
                   </div>
                 )}
 
@@ -206,12 +210,12 @@ export default function SimulatorPage() {
 
                 <label className="flex items-start gap-2 text-sm">
                   <input type="checkbox" className="mt-0.5" checked={injectMemory} onChange={e => setInjectMemory(e.target.checked)} data-testid="sim-inject-memory" />
-                  <span>Inject project memory <span className="block text-xs text-slate-500 dark:text-slate-400">Real memory injection: the project's enabled memory items are added to the request context and counted in input tokens (ACTUAL events). Nothing happens if the project has no items.</span></span>
+                  <span>Inject project memory <span className="block text-xs text-slate-600 dark:text-slate-400">Real memory injection: the project's enabled memory items are added to the request context and counted in input tokens (ACTUAL events). Nothing happens if the project has no items.</span></span>
                 </label>
 
                 <label className="flex items-start gap-2 text-sm">
                   <input type="checkbox" className="mt-0.5" checked={agentActivity} onChange={e => setAgentActivity(e.target.checked)} data-testid="sim-agent-activity" />
-                  <span>Also emit simulated agent activity <span className="block text-xs text-slate-500 dark:text-slate-400">Adds SIMULATED context, memory, bus and tool events to this request's trace.</span></span>
+                  <span>Also emit simulated agent activity <span className="block text-xs text-slate-600 dark:text-slate-400">Adds SIMULATED context, memory, bus and tool events to this request's trace.</span></span>
                 </label>
 
                 {error && <p role="alert" className={errCls} data-testid="simulator-error">{error}</p>}
@@ -225,7 +229,7 @@ export default function SimulatorPage() {
 
           <div className="space-y-4">
             <Card title="Seed demo data">
-              <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">Generates backdated DEMO / SIMULATED requests through the same pipeline. Leave the project as selected to target it.</p>
+              <p className="mb-3 text-xs text-slate-600 dark:text-slate-400">Generates backdated DEMO / SIMULATED requests through the same pipeline. Leave the project as selected to target it.</p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="seed-requests" className={labelCls}>Requests</label>
@@ -244,7 +248,7 @@ export default function SimulatorPage() {
             </Card>
 
             <Card title="Simulated agent execution">
-              <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">Emits a full SIMULATED agent trace (context, memory injection, bus op, tool calls with a retry, response) for the selected project.</p>
+              <p className="mb-3 text-xs text-slate-600 dark:text-slate-400">Emits a full SIMULATED agent trace (context, memory injection, bus op, tool calls with a retry, response) for the selected project.</p>
               <label className="mb-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={agentFail} onChange={e => setAgentFail(e.target.checked)} data-testid="agent-fail" /> Make it fail</label>
               <Button onClick={agentRun} disabled={agentBusy || !projectId} data-testid="simulator-agent-run">{agentBusy ? 'Running...' : 'Run simulated agent execution'}</Button>
               {agentTrace && <p className="mt-2 text-sm" role="status" data-testid="simulator-agent-result">Trace created: <Link to={`/traces/${agentTrace}`} className="text-brand-600 underline dark:text-brand-100" data-testid="simulator-agent-trace-link">{agentTrace}</Link></p>}

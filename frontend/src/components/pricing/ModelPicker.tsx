@@ -2,7 +2,7 @@ import type { ProviderDto } from '@shared/types';
 import { inputCls } from '../ui/Button';
 
 export const CUSTOM = '__custom__';
-const labelCls = 'mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400';
+const labelCls = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400';
 
 export interface ModelSel { provider: string; model: string; customModel: string }
 export const effectiveModel = (s: ModelSel) => (s.model === CUSTOM ? s.customModel.trim() : s.model);
@@ -39,8 +39,8 @@ export default function ModelPicker({ providers, value, onChange, showErrors }: 
           <label htmlFor="pricing-custom-model" className={labelCls}>Custom model name</label>
           <input id="pricing-custom-model" className={`${inputCls} w-full`} value={value.customModel} placeholder="e.g. my-experimental-model"
             onChange={e => onChange({ ...value, customModel: e.target.value })} aria-invalid={missing} data-testid="pricing-custom-model" />
-          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Unknown models are priced with the fallback row and labeled ESTIMATED.</p>
-          {missing && <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400" data-testid="pricing-model-error">Enter a model name.</p>}
+          <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">Unknown models are priced with the fallback row and labeled ESTIMATED.</p>
+          {missing && <p role="alert" className="mt-1 text-xs text-red-700 dark:text-red-400" data-testid="pricing-model-error">Enter a model name.</p>}
         </div>
       )}
     </div>

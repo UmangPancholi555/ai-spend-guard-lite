@@ -4,6 +4,7 @@ import PageHeader from '../components/ui/PageHeader';
 import { Card } from '../components/ui/Card';
 import { SourceBadge, StatusBadge } from '../components/ui/Badge';
 import { Td } from '../components/ui/Table';
+import { LinkButton } from '../components/ui/Button';
 import ProjectSelect from '../components/activity/ProjectSelect';
 import BackgroundTasksPanel from '../components/traces/BackgroundTasksPanel';
 import { ExportLinks, FilterBar, PagedTable, SOURCE_OPTIONS, SelectFilter, TextFilter, useFilters, useList } from '../components/observability/common';
@@ -28,7 +29,7 @@ export default function TracesPage() {
           <TextFilter label="To" type="date" value={f.filters.to} onChange={v => f.setFilter('to', v)} testId="trace-filter-to" />
         </FilterBar>
         <Card>
-          <PagedTable state={state} testId="trace-table" onPage={f.setPage} emptyMessage="No traces match these filters. Send a mock request or run the simulator to create some."
+          <PagedTable state={state} testId="trace-table" onPage={f.setPage} emptyMessage="No traces match these filters. Send a mock request or run the simulator to create some." emptyAction={!f.dirty && <LinkButton to="/simulator" testId="traces-empty-cta">Open Request Simulator</LinkButton>}
             head={['Trace', 'Name', 'Status', 'Source', 'Started', 'Duration', 'Spans', 'Errors']}
             row={t => (
               <tr key={t.traceId} data-testid="trace-row" data-status={t.status} className={t.status === 'ERROR' ? 'bg-red-50/60 dark:bg-red-950/20' : undefined}>
@@ -44,7 +45,7 @@ export default function TracesPage() {
                   ? <span className="inline-flex items-center gap-1 text-red-700 dark:text-red-300" data-testid="trace-error-indicator" title={t.errorMessage ?? 'Trace ended with an error'}>
                     <span aria-hidden="true" className="h-2 w-2 rounded-full bg-red-500" /><span className="block max-w-[14rem] truncate">{t.errorMessage ?? 'Error'}</span>
                   </span>
-                  : <span className="text-slate-400">-</span>}</Td>
+                  : <span className="text-slate-600 dark:text-slate-400">-</span>}</Td>
               </tr>
             )} />
         </Card>

@@ -17,20 +17,20 @@ export default function ResponsePanel({ r }: { r: MockProviderResponse }) {
         <div className="flex flex-wrap items-center gap-2">
           <span data-testid="simulator-result-status"><StatusBadge status={r.status} /></span>
           <span>{r.provider} / {r.model}</span>
-          <span className="text-slate-500 dark:text-slate-400">finish: {r.finishReason} - {fmtMs(r.durationMs)} (simulated)</span>
+          <span className="text-slate-600 dark:text-slate-400">finish: {r.finishReason} - {fmtMs(r.durationMs)} (simulated)</span>
         </div>
         {r.error && <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200" data-testid="simulator-result-error"><strong>{r.error.code}</strong>: {r.error.message}</div>}
         <section>
           <h3 className="mb-1 font-semibold">Content</h3>
-          {r.content ? <p className="whitespace-pre-wrap rounded-md bg-slate-50 p-2 dark:bg-slate-800" data-testid="simulator-result-content">{r.content}</p> : <p className="text-slate-500 dark:text-slate-400">No content (request failed).</p>}
+          {r.content ? <p className="whitespace-pre-wrap rounded-md bg-slate-50 p-2 dark:bg-slate-800" data-testid="simulator-result-content">{r.content}</p> : <p className="text-slate-600 dark:text-slate-400">No content (request failed).</p>}
         </section>
         <div className="grid gap-4 md:grid-cols-2">
           <section>
             <h3 className="mb-1 font-semibold">Usage</h3>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
-              <dt className="text-slate-500 dark:text-slate-400">Input tokens</dt><dd className="text-right" data-testid="simulator-result-input">{fmtInt(r.usage.inputTokens)}</dd>
-              <dt className="text-slate-500 dark:text-slate-400">Output tokens</dt><dd className="text-right" data-testid="simulator-result-output">{fmtInt(r.usage.outputTokens)}</dd>
-              <dt className="text-slate-500 dark:text-slate-400">Cached tokens</dt><dd className="text-right" data-testid="simulator-result-cached">{fmtInt(r.usage.cachedTokens)}</dd>
+              <dt className="text-slate-600 dark:text-slate-400">Input tokens</dt><dd className="text-right" data-testid="simulator-result-input">{fmtInt(r.usage.inputTokens)}</dd>
+              <dt className="text-slate-600 dark:text-slate-400">Output tokens</dt><dd className="text-right" data-testid="simulator-result-output">{fmtInt(r.usage.outputTokens)}</dd>
+              <dt className="text-slate-600 dark:text-slate-400">Cached tokens</dt><dd className="text-right" data-testid="simulator-result-cached">{fmtInt(r.usage.cachedTokens)}</dd>
             </dl>
           </section>
           <section>
@@ -42,17 +42,17 @@ export default function ResponsePanel({ r }: { r: MockProviderResponse }) {
         <section className="flex flex-wrap gap-x-6 gap-y-1">
           <Link to={`/usage?detail=${encodeURIComponent(r.usageEventId)}`} className="text-brand-600 underline dark:text-brand-100" data-testid="simulator-usage-link">View request details</Link>
           <Link to={`/traces/${r.traceId}`} className="text-brand-600 underline dark:text-brand-100" data-testid="simulator-trace-link">View trace</Link>
-          <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{r.requestId}</span>
+          <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{r.requestId}</span>
         </section>
         <section>
           <h3 className="mb-1 font-semibold">New budget alerts</h3>
-          {r.budgetAlerts.length === 0 ? <p className="text-slate-500 dark:text-slate-400" data-testid="simulator-no-alerts">None raised by this request.</p> : (
+          {r.budgetAlerts.length === 0 ? <p className="text-slate-600 dark:text-slate-400" data-testid="simulator-no-alerts">None raised by this request.</p> : (
             <ul className="space-y-1" data-testid="simulator-alerts">
               {r.budgetAlerts.map(a => (
                 <li key={a.id} className="flex flex-wrap items-center gap-2">
                   <Badge tone={a.threshold >= 100 ? 'red' : a.threshold >= 80 ? 'amber' : 'blue'}>{a.threshold}%</Badge>
                   <span className="font-medium">{a.budgetName}</span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">{fmtUsd(a.spendUsd)} of {fmtUsd(a.limitUsd)} ({a.percent.toFixed(1)}%) - {fmtDateTime(a.createdAt)}</span>
+                  <span className="text-xs text-slate-600 dark:text-slate-400">{fmtUsd(a.spendUsd)} of {fmtUsd(a.limitUsd)} ({a.percent.toFixed(1)}%) - {fmtDateTime(a.createdAt)}</span>
                 </li>
               ))}
             </ul>

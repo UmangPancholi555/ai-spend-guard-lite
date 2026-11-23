@@ -35,8 +35,9 @@ export interface ToolDef<I = unknown> {
 }
 
 export class ToolExecutionError extends AppError {
-  constructor(message: string, readonly toolCallId: string, readonly attempts: number, readonly cause?: unknown) {
-    super(502, 'TOOL_FAILED', message);
+  /** `cause` keeps the raw error for server-side use only; the client message is generic (details live in the ACTUAL tool/error events). */
+  constructor(readonly toolCallId: string, readonly attempts: number, readonly cause?: unknown) {
+    super(502, 'TOOL_FAILED', 'Tool execution failed', { toolCallId, attempts });
   }
 }
 
@@ -183,7 +184,7 @@ export class ToolExecutor {
         });
         if (final) {
           await span?.end({ message: info.message, stack: info.stack, category: transient ? 'TIMEOUT' : 'TOOL' }, { attempts: attempt + 1 });
-          throw new ToolExecutionError(`Tool ${name} failed after ${attempt + 1} attempt(s): ${info.message}`.slice(0, 500), toolCallId, attempt + 1, e);
+          throw new ToolExecutionError(toolCallId, attempt + 1, e);
         }
         await sleep(backoffMs(attempt));
       }

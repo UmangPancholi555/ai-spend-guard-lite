@@ -45,7 +45,7 @@ export default function CalculatorTab({ providers, sel, onSel, fields, onFields,
         <form onSubmit={submit} noValidate className="space-y-4" data-testid="pricing-calc-form">
           <ModelPicker providers={providers} value={sel} onChange={onSel} showErrors={showErrors} />
           <TokenInputs v={fields} onChange={onFields} showErrors={showErrors} />
-          <p className="text-xs text-slate-500 dark:text-slate-400">{CONVENTION_NOTE}</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400">{CONVENTION_NOTE}</p>
           {error && <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200" data-testid="pricing-calc-error">{error}</p>}
           <div className="flex justify-end"><Button type="submit" disabled={busy} data-testid="pricing-calc-submit">{busy ? 'Calculating...' : 'Calculate cost'}</Button></div>
         </form>

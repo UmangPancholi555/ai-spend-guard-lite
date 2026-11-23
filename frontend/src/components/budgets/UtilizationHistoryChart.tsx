@@ -46,7 +46,7 @@ export default function UtilizationHistoryChart({ budgetId, reloadKey }: { budge
           </BarChart>
         </ResponsiveContainer>
       </ChartBox>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Previous {data.history.length} {data.budget.period.toLowerCase()} periods plus the current one (UTC). Dashed lines mark the 50 / 80 / 100% alert thresholds.</p>
+      <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">Previous {data.history.length} {data.budget.period.toLowerCase()} periods plus the current one (UTC). Dashed lines mark the 50 / 80 / 100% alert thresholds.</p>
     </div>
   );
 }

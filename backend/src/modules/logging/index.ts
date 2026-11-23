@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
+import type { Prisma } from '@prisma/client';
 import type { AppDeps } from '../../contracts/services';
 import { ah, pageOf, paginationQuery, parse, csvCell, toCsv } from '../../utils/http';
 import { AppError, notFound } from '../../utils/errors';
 import { safeStringify } from '../../utils/serialize';
 import { DATASETS, logsDataset, type Dataset } from './datasets';
 import { toLogDto } from './mappers';
+import { isHiddenLogRow, scopeDataset, scopeLogWhere } from '../auth/visibility';
 import { runRetentionSweep } from './retention';
 import { getSettings, settingsUpdateSchema, updateSettings } from './settings';
 
@@ -93,7 +95,7 @@ export function createLoggingRouter(deps: AppDeps, options: LoggingRouterOptions
   r.get('/logs', ah(async (req, res) => {
     const { page, pageSize } = parse(paginationQuery, cleanQuery(req.query));
     const q = parse(logsDataset.filterSchema, cleanQuery(req.query));
-    const where = logsDataset.where(q);
+    const where = scopeLogWhere(req, logsDataset.where(q) as Prisma.ExecutionLogWhereInput);
     const [total, rows] = await Promise.all([
       prisma.executionLog.count({ where }),
       prisma.executionLog.findMany({ where, orderBy: [{ ts: 'desc' }, { id: 'desc' }], skip: (page - 1) * pageSize, take: pageSize }),
@@ -103,13 +105,14 @@ export function createLoggingRouter(deps: AppDeps, options: LoggingRouterOptions
 
   r.get('/logs/:id', ah(async (req, res) => {
     const row = await prisma.executionLog.findUnique({ where: { id: req.params.id } });
-    if (!row) throw notFound('Log entry');
+    if (!row || isHiddenLogRow(req, row)) throw notFound('Log entry');
     res.json({ data: toLogDto(row) });
   }));
 
   r.get('/export/:dataset', ah(async (req, res) => {
-    const ds = DATASETS[req.params.dataset];
-    if (!ds || !Object.prototype.hasOwnProperty.call(DATASETS, req.params.dataset)) throw notFound(`Dataset "${req.params.dataset}"`);
+    const ds0 = DATASETS[req.params.dataset];
+    if (!ds0 || !Object.prototype.hasOwnProperty.call(DATASETS, req.params.dataset)) throw notFound(`Dataset "${req.params.dataset}"`);
+    const ds = scopeDataset(ds0, req);
     const query = cleanQuery(req.query);
     const { format, limit } = parse(z.object({
       format: z.enum(['jsonl', 'csv']).default('jsonl'), limit: z.coerce.number().int().min(1).max(maxExportRows).optional(),

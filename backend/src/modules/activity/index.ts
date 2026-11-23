@@ -4,6 +4,7 @@ import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import type { AppDeps } from '../../contracts/services';
 import { ah, pageOf, parse } from '../../utils/http';
+import { scopeActivityWhere } from '../auth/visibility';
 import {
   SOURCE_ENUM, checkRange, cleanQuery, listBase, mapActivity, projectNames, rangeFilter, rangeShape, searchOr, skipTake,
 } from '../observability/common';
@@ -37,7 +38,7 @@ export function createActivityRouter(deps: AppDeps): Router {
     if (range) and.push({ createdAt: range });
     const s = searchOr(q.search, ['message', 'type', 'requestId']);
     if (s) and.push(s);
-    const where: Prisma.ActivityEventWhereInput = and.length ? { AND: and } : {};
+    const where: Prisma.ActivityEventWhereInput = scopeActivityWhere(req, and.length ? { AND: and } : {});
 
     const [total, rows] = await Promise.all([
       prisma.activityEvent.count({ where }),

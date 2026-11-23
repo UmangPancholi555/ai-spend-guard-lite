@@ -13,7 +13,7 @@ export default function BackgroundTasksPanel() {
   const state = useList<BackgroundTaskDto>('/background-tasks', f.query);
   return (
     <Card title="Background tasks" actions={<ExportLinks dataset="tasks" params={f.params} />}>
-      <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">Tracked jobs: retention sweeps, demo data seeding and budget evaluations. Seeding is SIMULATED; the others are real work done by this app.</p>
+      <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">Tracked jobs: retention sweeps, demo data seeding and budget evaluations. Seeding is SIMULATED; the others are real work done by this app.</p>
       <FilterBar onReset={f.reset} dirty={f.dirty}>
         <SelectFilter label="Status" value={f.filters.status} onChange={v => f.setFilter('status', v)} options={STATUSES} testId="task-filter-status" />
         <SelectFilter label="Kind" value={f.filters.kind} onChange={v => f.setFilter('kind', v)} options={KINDS} testId="task-filter-kind" />

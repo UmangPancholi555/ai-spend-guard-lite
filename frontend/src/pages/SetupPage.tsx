@@ -5,6 +5,7 @@ import AuthShell, { FormError, FormField } from '../components/auth/AuthShell';
 import { useAuth } from '../components/auth/AuthProvider';
 import { Button, inputCls } from '../components/ui/Button';
 import { Loading } from '../components/ui/State';
+import { errMessage } from '../components/projects/util';
 
 export default function SetupPage() {
   const auth = useAuth();
@@ -31,7 +32,7 @@ export default function SetupPage() {
       await auth.setup(username.trim(), password);
       navigate('/', { replace: true });
     } catch (err) {
-      setError((err as Error).message || 'Setup failed');
+      setError(errMessage(err) || 'Setup failed');
       // the first admin may have been created in the meantime (409): re-read status so the guard sends us to /login
       void auth.refresh();
     } finally { setBusy(false); }

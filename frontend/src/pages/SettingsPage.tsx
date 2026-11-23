@@ -9,6 +9,7 @@ import { api } from '../lib/api';
 import { useAsync } from '../lib/useApi';
 import { fmtDateTime, fmtMs } from '../lib/format';
 import { Field, JsonBlock, KeyVal, StackBlock } from '../components/observability/common';
+import { useToast } from '../components/ui/Toast';
 
 function intError(v: string, min: number, max: number, label: string): string | null {
   if (!/^\d+$/.test(v.trim())) return `${label} must be a whole number.`;
@@ -19,6 +20,7 @@ function intError(v: string, min: number, max: number, label: string): string | 
 
 export default function SettingsPage() {
   const { data, error, loading, reload } = useAsync(() => api.get<AppSettings>('/settings'), []);
+  const toast = useToast();
   const [retention, setRetention] = useState('');
   const [slow, setSlow] = useState('');
   const [saving, setSaving] = useState(false);
@@ -44,33 +46,34 @@ export default function SettingsPage() {
     try {
       await api.put<AppSettings>('/settings', { retentionDays: Number(retention), slowOperationMs: Number(slow) });
       setSaved(true);
+      toast.success('Settings saved');
       reload();
-    } catch (err) { setSaveError((err as Error).message); } finally { setSaving(false); }
+    } catch (err) { setSaveError((err as Error).message); toast.error('Could not save settings', (err as Error).message); } finally { setSaving(false); }
   }
 
   async function runSweep() {
     setSweeping(true); setSweepError(undefined);
-    try { setSweep(await api.post<BackgroundTaskDto>('/logging/retention/run')); }
-    catch (err) { setSweepError((err as Error).message); setSweep(undefined); }
+    try { const t = await api.post<BackgroundTaskDto>('/logging/retention/run'); setSweep(t); toast.success('Retention sweep finished', `Status: ${t.status}`); }
+    catch (err) { setSweepError((err as Error).message); setSweep(undefined); toast.error('Retention sweep failed', (err as Error).message); }
     finally { setSweeping(false); }
   }
 
   return (
     <div className="max-w-3xl space-y-6">
       <PageHeader title="Settings" subtitle="Log retention, slow-operation threshold and privacy behavior." />
-      <Async loading={loading && !data} error={error}>
+      <Async loading={loading && !data} error={error} skeleton="lines">
         <Card title="Logging and retention">
           <form onSubmit={save} noValidate className="space-y-4" data-testid="settings-form">
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Retention (days, 0 = keep forever)">
                 <input className={inputCls} inputMode="numeric" value={retention} onChange={e => { setRetention(e.target.value); setSaved(false); }}
                   aria-invalid={!!retErr} data-testid="settings-retention-input" />
-                {retErr && <span className="text-xs text-red-600 dark:text-red-400" data-testid="settings-retention-error">{retErr}</span>}
+                {retErr && <span className="text-xs text-red-700 dark:text-red-400" data-testid="settings-retention-error">{retErr}</span>}
               </Field>
               <Field label="Slow operation threshold (ms)">
                 <input className={inputCls} inputMode="numeric" value={slow} onChange={e => { setSlow(e.target.value); setSaved(false); }}
                   aria-invalid={!!slowErr} data-testid="settings-slow-input" />
-                {slowErr && <span className="text-xs text-red-600 dark:text-red-400" data-testid="settings-slow-error">{slowErr}</span>}
+                {slowErr && <span className="text-xs text-red-700 dark:text-red-400" data-testid="settings-slow-error">{slowErr}</span>}
               </Field>
             </div>
             <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">

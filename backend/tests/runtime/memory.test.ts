@@ -12,6 +12,21 @@ const SENT_BODY = 'MEM-CONTENT-SENTINEL-9182';
 const api = () => request(ctx.app);
 
 describe('project memory store (real, REST)', () => {
+  it('deleting a test project cascades to its memory items (and leaves other projects alone)', async () => {
+    const p = await ctx.prisma.project.create({ data: { name: `cascade-${Math.random().toString(36).slice(2, 8)}`, isTest: true } });
+    const other = await makeProject(ctx.prisma);
+    for (const proj of [p, other]) {
+      for (const t of ['a', 'b']) {
+        expect((await api().post(`/api/projects/${proj.id}/memory`).send({ title: t, category: 'facts', content: 'cascade test' })).status).toBe(201);
+      }
+    }
+    expect(await ctx.prisma.projectMemoryItem.count({ where: { projectId: p.id } })).toBe(2);
+    expect((await api().delete(`/api/projects/${p.id}`)).status).toBe(204);
+    expect(await ctx.prisma.projectMemoryItem.count({ where: { projectId: p.id } })).toBe(0);
+    expect(await ctx.prisma.projectMemoryItem.count({ where: { projectId: other.id } })).toBe(2);
+    expect((await api().get(`/api/projects/${p.id}/memory`)).status).toBe(404);
+  });
+
   it('create / list / patch / delete with computed sizeBytes + estimatedTokens', async () => {
     const p = await makeProject(ctx.prisma);
     const content = `${SENT_BODY} Always answer in French. Prefer short answers.`;

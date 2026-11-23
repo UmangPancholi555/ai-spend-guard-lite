@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect } from './support/test';
 import { apiBudget, apiCreateProject, apiGet, apiRequest, picoToUsd, uniq, usdToPico, watchConsole } from './support/helpers';
 
 const PROMPT = 'budget e2e prompt '.repeat(8);

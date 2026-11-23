@@ -43,7 +43,7 @@ function Entry({ e }: { e: TimelineEntry }) {
       <span aria-hidden="true" className={`absolute left-1.5 top-3 h-2.5 w-2.5 rounded-full ring-4 ring-white dark:ring-slate-900 ${dot}`} />
       <button type="button" aria-expanded={open} onClick={() => setOpen(o => !o)} data-testid="timeline-entry-toggle"
         className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded px-1 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/50">
-        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{fmtDateTimeMs(e.ts)}</span>
+        <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{fmtDateTimeMs(e.ts)}</span>
         <span className={`text-sm font-semibold ${failed ? 'text-red-800 dark:text-red-200' : ''}`} data-testid="timeline-step">{STEP_LABELS[e.step] ?? e.step}</span>
         <span className="min-w-0 truncate text-sm text-slate-600 dark:text-slate-300">{e.label}</span>
         <span className="ml-auto flex flex-wrap items-center gap-2">
@@ -56,7 +56,7 @@ function Entry({ e }: { e: TimelineEntry }) {
       {failed && e.errorMessage && <div className="px-1 pb-1 text-sm text-red-700 dark:text-red-300" role="alert" data-testid="timeline-error">{e.errorMessage}</div>}
       {open && (
         <div className="px-1 pb-3" data-testid="timeline-details">
-          <div className="mb-1 text-xs text-slate-500 dark:text-slate-400">{e.refKind}{e.refId ? ` ${e.refId}` : ''}{e.spanId ? ` - span ${e.spanId}` : ''} - metadata only, no content is stored</div>
+          <div className="mb-1 text-xs text-slate-600 dark:text-slate-400">{e.refKind}{e.refId ? ` ${e.refId}` : ''}{e.spanId ? ` - span ${e.spanId}` : ''} - metadata only, no content is stored</div>
           <JsonBlock data={e.details} label="Timeline entry details" />
         </div>
       )}
@@ -65,7 +65,7 @@ function Entry({ e }: { e: TimelineEntry }) {
 }
 
 export default function ExecutionTimeline({ entries }: { entries: TimelineEntry[] }) {
-  if (entries.length === 0) return <div className="p-6 text-center text-sm text-slate-500 dark:text-slate-400" data-testid="empty-state">No timeline entries recorded for this trace.</div>;
+  if (entries.length === 0) return <div className="p-6 text-center text-sm text-slate-600 dark:text-slate-400" data-testid="empty-state">No timeline entries recorded for this trace.</div>;
   const simulated = entries.filter(e => e.source === 'SIMULATED').length;
   return (
     <div>

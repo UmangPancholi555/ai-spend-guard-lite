@@ -46,7 +46,7 @@ function SpanRow({ node, t0, total }: { node: Node; t0: number; total: number })
         className="grid w-full grid-cols-[minmax(12rem,22rem)_minmax(10rem,1fr)] items-center gap-3 px-2 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800/50">
         <div className="min-w-0" style={{ paddingLeft: `${depth * 16}px` }}>
           <div className="flex flex-wrap items-center gap-1.5">
-            {depth > 0 && <span aria-hidden="true" className="text-slate-400">&#x2514;</span>}
+            {depth > 0 && <span aria-hidden="true" className="text-slate-500 dark:text-slate-400">&#x2514;</span>}
             <span className={`truncate text-sm font-medium ${failed ? 'text-red-800 dark:text-red-200' : ''}`} title={span.name}>{span.name}</span>
             <Badge>{span.kind}</Badge>
             <SourceBadge source={span.source} />
@@ -83,11 +83,11 @@ export default function SpanWaterfall({ trace, spans }: { trace: TraceDto; spans
     const total = Math.max(1, trace.durationMs ?? 0, traceEnd - t0, ...ends.map(e => e - t0));
     return { t0, total };
   }, [spans, trace]);
-  if (spans.length === 0) return <div className="p-6 text-center text-sm text-slate-500 dark:text-slate-400" data-testid="empty-state">This trace has no spans.</div>;
+  if (spans.length === 0) return <div className="p-6 text-center text-sm text-slate-600 dark:text-slate-400" data-testid="empty-state">This trace has no spans.</div>;
   return (
     <div className="overflow-x-auto">
       <div className="min-w-[36rem]">
-        <div className="mb-1 flex justify-between px-2 text-xs text-slate-500 dark:text-slate-400" aria-hidden="true">
+        <div className="mb-1 flex justify-between px-2 text-xs text-slate-600 dark:text-slate-400" aria-hidden="true">
           <span>Span</span><span>Waterfall (0 - {fmtMs(total)})</span>
         </div>
         <ul data-testid="span-tree" className="rounded-md border border-slate-200 dark:border-slate-800">

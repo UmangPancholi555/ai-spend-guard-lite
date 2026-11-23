@@ -71,8 +71,8 @@ const tool: Spec<ToolCallEventDto> = {
         <KeyVal k="Request id"><span className="font-mono text-xs">{e.requestId ?? '-'}</span></KeyVal>
       </dl>
       <div className="grid gap-3 md:grid-cols-2">
-        <div><div className="mb-1 text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Input metadata</div><JsonBlock data={e.inputMeta} /></div>
-        <div><div className="mb-1 text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Output metadata</div><JsonBlock data={e.outputMeta} /></div>
+        <div><div className="mb-1 text-xs font-medium uppercase text-slate-600 dark:text-slate-400">Input metadata</div><JsonBlock data={e.inputMeta} /></div>
+        <div><div className="mb-1 text-xs font-medium uppercase text-slate-600 dark:text-slate-400">Output metadata</div><JsonBlock data={e.outputMeta} /></div>
       </div>
       {ERR(e)}
     </div>
@@ -109,7 +109,7 @@ function EventTab({ kind, fixedTraceId, compact }: { kind: Kind; fixedTraceId?: 
   const head = showTrace ? spec.head : spec.head.slice(0, -1);
   return (
     <div data-testid={`event-panel-${kind}`}>
-      <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">{spec.hint}</p>
+      <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">{spec.hint}</p>
       <FilterBar onReset={f.reset} dirty={f.dirty}>
         {showTrace && <TextFilter label="Trace id" value={f.filters.traceId} onChange={v => f.setFilter('traceId', v)} placeholder="trace id" testId="event-filter-trace" />}
         <SelectFilter label="Status" value={f.filters.status} onChange={v => f.setFilter('status', v)} options={spec.statuses} testId="event-filter-status" />

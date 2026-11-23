@@ -1,6 +1,7 @@
 import type { ActivityEventDto } from '@shared/types';
 import PageHeader from '../components/ui/PageHeader';
 import { Card } from '../components/ui/Card';
+import { LinkButton } from '../components/ui/Button';
 import { SourceBadge } from '../components/ui/Badge';
 import ProjectSelect from '../components/activity/ProjectSelect';
 import {
@@ -27,7 +28,7 @@ export default function ActivityPage() {
         <TextFilter label="To" type="date" value={f.filters.to} onChange={v => f.setFilter('to', v)} testId="activity-filter-to" />
       </FilterBar>
       <Card>
-        <PagedTable state={state} testId="activity-table" onPage={f.setPage} emptyMessage="No activity events match these filters."
+        <PagedTable state={state} testId="activity-table" onPage={f.setPage} emptyMessage="No activity events match these filters." emptyAction={!f.dirty && <LinkButton to="/projects" testId="activity-empty-cta">Go to Projects</LinkButton>}
           head={['Details', 'Time', 'Level', 'Type', 'Message', 'Source', 'Project', 'Trace']}
           row={e => (
             <ExpandableRow key={e.id} testId="activity-row" tone={e.level === 'ERROR' ? 'error' : undefined}
@@ -48,7 +49,7 @@ export default function ActivityPage() {
                     <KeyVal k="Message">{e.message}</KeyVal>
                   </dl>
                   <div>
-                    <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Metadata (no content, metadata only)</div>
+                    <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">Metadata (no content, metadata only)</div>
                     <JsonBlock data={e.metadata} testId="activity-metadata" />
                   </div>
                 </div>

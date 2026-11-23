@@ -15,7 +15,9 @@
     "typecheck": "npm run typecheck -w backend && npm run typecheck -w frontend",
     "test": "npm run test -w backend",
     "test:e2e": "playwright test",
-    "user:create": "tsx backend/src/modules/auth/cli.ts"
+    "user:create": "tsx backend/src/modules/auth/cli.ts create",
+    "user:unlock": "tsx backend/src/modules/auth/cli.ts unlock",
+    "user:reset-password": "tsx backend/src/modules/auth/cli.ts reset-password"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",

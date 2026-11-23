@@ -32,7 +32,7 @@ export default function UtilizationBar({ percent, testId = 'utilization-bar' }: 
           <div key={t} className="absolute inset-y-0 w-px bg-slate-900/50 dark:bg-white/60" style={{ left: `${t}%` }} aria-hidden="true" />
         ))}
       </div>
-      <div className="relative mt-1 h-4 text-[10px] text-slate-500 dark:text-slate-400" aria-hidden="true">
+      <div className="relative mt-1 h-4 text-[10px] text-slate-600 dark:text-slate-400" aria-hidden="true">
         <span className="absolute -translate-x-1/2" style={{ left: '50%' }}>50%</span>
         <span className="absolute -translate-x-1/2" style={{ left: '80%' }}>80%</span>
         <span className="absolute right-0">100%</span>

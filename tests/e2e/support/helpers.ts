@@ -30,7 +30,11 @@ export async function apiCreateProject(request: APIRequestContext, name = uniq('
 export interface MockResponse {
   requestId: string; traceId: string; status: 'SUCCESS' | 'FAILURE'; usageEventId: string; projectId: string;
   usage: { inputTokens: number; outputTokens: number; cachedTokens: number };
-  cost: { totalCostUsd: string; costClass: string }; budgetAlerts: { threshold: number; budgetId: string }[];
+  cost: { totalCostUsd: string; inputCostUsd: string; outputCostUsd: string; cachedCostUsd: string; costClass: string }; budgetAlerts: { threshold: number; budgetId: string }[];
+  /** wave 2 real runtime summaries (ACTUAL, metadata only) */
+  memory: { injected: boolean; items: number; estimatedTokens: number; truncated: boolean; droppedItems: number };
+  context: { contextId: string; version: number; sizeBytes: number; estimatedTokens: number; windowTokens: number; truncated: boolean };
+  tools?: { name: string; toolCallId: string; status: string; attempts: number; durationMs: number }[];
 }
 export async function apiRequest(request: APIRequestContext, projectId: string, extra: Record<string, unknown> = {}): Promise<MockResponse> {
   return ok(await request.post('/api/providers/requests', {
@@ -82,6 +86,7 @@ export const NAV: { label: string; path: string; heading: RegExp }[] = [
   { label: 'Projects', path: '/projects', heading: /^Projects$/ },
   { label: 'Usage', path: '/usage', heading: /^Usage$/ },
   { label: 'Request Simulator', path: '/simulator', heading: /^Request Simulator$/ },
+  { label: 'Pricing & Calculator', path: '/pricing', heading: /^Pricing & Cost Calculator$/ },
   { label: 'Budgets & Alerts', path: '/budgets', heading: /^Budgets & Alerts$/ },
   { label: 'Activity', path: '/activity', heading: /^Activity$/ },
   { label: 'Traces', path: '/traces', heading: /^Traces$/ },

@@ -32,7 +32,7 @@ export async function createTestApp(existing?: { dir?: string; auth?: boolean })
   const config = loadConfig({ databaseUrl, logDir: path.join(dir, 'logs'), frontendDist: null,
     // legacy suites run with auth OFF; pass { auth: true } for auth-specific suites. Rate limiting off in tests.
     auth: { enabled: existing?.auth ?? false, sessionTtlHours: 12, cookieSecure: false },
-    security: { rateLimitPerMinute: 0 } });
+    security: { rateLimitPerMinute: 0, allowedHosts: [] } });
   fs.mkdirSync(config.logDir, { recursive: true });
   const deps = createDeps(prisma, config);
   const app = buildApp(deps);

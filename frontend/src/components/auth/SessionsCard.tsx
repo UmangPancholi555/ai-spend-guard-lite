@@ -32,7 +32,7 @@ export default function SessionsCard() {
   return (
     <Card title="Your active sessions" actions={<Button variant="ghost" onClick={reload} data-testid="account-sessions-refresh">Refresh</Button>}>
       <FormError id="account-sessions-error" testId="account-sessions-error" message={actionError} />
-      <Async loading={loading && !data} error={error}>
+      <Async loading={loading && !data} error={error} skeleton="table">
         <div data-testid="account-sessions">
           <Table head={['Device', 'IP', 'Last active', 'Expires', '']} empty={data && data.length === 0 ? <EmptyState message="No active sessions." /> : undefined}>
             {(data ?? []).map(s => (

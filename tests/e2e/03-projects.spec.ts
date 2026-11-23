@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect } from './support/test';
 import { apiCreateProject, apiRequest, slug, uniq, watchConsole } from './support/helpers';
 
 async function createViaUi(page: Page, name: string, opts: { description?: string; isTest?: boolean } = {}) {

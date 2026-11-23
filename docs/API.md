@@ -1,16 +1,27 @@
 # REST API
 
-Base URL: `http://localhost:4000/api` (also `http://localhost:5173/api` through the Vite dev proxy).
+Base URL: `http://localhost:4000/api` (also `http://localhost:5173/api` through the Vite dev proxy). The server binds to `127.0.0.1` by default (`HOST`).
+**Every endpoint except `GET /health`, `GET /auth/status`, `POST /auth/setup` and `POST /auth/login` needs a logged-in session** (cookie `sg_session`);
+state-changing calls also need the `X-CSRF-Token` header (section 1, "Authentication"). The one exception is `AUTH_ENABLED=false`, which turns all of this off (see [SECURITY.md](SECURITY.md)).
 All provider traffic is a local simulation; responses and records carry `simulated: true` / `label: "DEMO / SIMULATED"` where the DTO says so.
 Response types are defined in `shared/types.ts`; this document lists endpoints, parameters, status codes and examples.
 
-Examples assume:
+Examples assume (log in once, then use `c` for every authenticated call; it sends the cookie jar and the CSRF header):
 
 ```bash
 API=http://localhost:4000/api
 # helper used below to pull one field out of a JSON response without extra tools
 jid() { node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).data.'"${1:-id}"; }
+
+# first run only, on an empty database (or use ADMIN_USERNAME / ADMIN_PASSWORD, or `npm run user:create`):
+#   curl -s -X POST $API/auth/setup -H 'content-type: application/json' -d '{"username":"alice","password":"a-long-unique-passphrase"}'
+JAR=$(mktemp)
+CSRF=$(curl -s -c $JAR -X POST $API/auth/login -H 'content-type: application/json' \
+  -d '{"username":"alice","password":"a-long-unique-passphrase"}' | jid csrfToken)
+c() { curl -s -b $JAR -H "X-CSRF-Token: $CSRF" "$@"; }   # GETs ignore the header; POST/PATCH/PUT/DELETE need it
 ```
+
+The `content-type: application/json` header is added explicitly in the examples that send a body. (Against a server started with `AUTH_ENABLED=false`, plain `curl -s` works.)
 
 ## 1. Conventions
 
@@ -24,18 +35,42 @@ jid() { node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).data.'"${1:-i
 | Error | `{ "error": { "code": "VALIDATION_ERROR", "message": "Request validation failed", "details": ... } }` |
 | File download | raw body with `Content-Disposition: attachment` (CSV / JSONL) |
 
-Every `/api` response carries an `x-request-id` header. A client-supplied `x-request-id` matching `[A-Za-z0-9._-]{1,64}` is echoed back.
+Every `/api` response carries an `x-request-id` header. A client-supplied `x-request-id` matching `[A-Za-z0-9._-]{8,64}` is echoed back; anything else is replaced by a generated id. Request logging is flood-protected: `401`, `429` and unmatched-route `404` responses are never logged individually; they are counted in memory and flushed as at most one `request.rejected.summary` log per minute (counts by status only). Detailed request rows are capped at 1200/min (excess counted in the summary). JSONL files (`LOG_DIR`) are written in async batches (<=250ms), rolled over at 50MB per day file, and the whole directory is capped at `LOG_DIR_MAX_MB` (default 500): oldest day files are deleted first, then JSONL appends are suspended with one warning (DB rows are unaffected). Call `flushLogs()` on shutdown.
 
 ### Error codes
 
 | HTTP | `error.code` | When |
 |---|---|---|
 | 400 | `VALIDATION_ERROR` | Zod validation failed (`details` is a list of `{path, message}`), invalid JSON body (`"Invalid JSON body"`), `from` after `to`, bad price / amount, no updatable fields |
+| 401 | `UNAUTHENTICATED` | No / expired / idle session cookie on a protected route (also for unknown `/api/*` paths) |
+| 401 | `INVALID_CREDENTIALS` | Wrong username or password at `POST /auth/login` (identical for unknown users) |
+| 403 | `CSRF_INVALID` | Missing or wrong `X-CSRF-Token` on a state-changing request |
+| 403 | `FORBIDDEN` | `VIEWER` account on a write route, or a non-admin on `/auth/users*` |
+| 403 | `FORBIDDEN_ORIGIN` | State-changing request whose `Origin` header is not localhost / 127.0.0.1 / `[::1]` |
+| 403 | `INVALID_CURRENT_PASSWORD` | Wrong `currentPassword` at `POST /auth/password` (counts toward lockout) |
+| 400 | `USE_PASSWORD_ENDPOINT` | An admin tries to set **their own** password through `PATCH /auth/users/:id` (use `POST /auth/password`) |
+| 421 | `MISDIRECTED_REQUEST` | `Host` header is not localhost / 127.0.0.1 / `[::1]` or listed in `ALLOWED_HOSTS` |
+| 404 | `AUTH_DISABLED` | Any `/auth/*` route except `/auth/status` when `AUTH_ENABLED=false` |
 | 404 | `NOT_FOUND` | Unknown resource id, unknown export dataset, unknown `/api/*` route (`"Route not found"`) |
-| 409 | `CONFLICT` | Duplicate project name, duplicate budget (project + period), archived project used for a request / seed, deleting a non-test project |
+| 409 | `CONFLICT` | Duplicate project name, duplicate budget (project + period), archived project used for a request / seed, deleting a non-test project, duplicate username, 200 memory items per project reached |
+| 409 | `SETUP_COMPLETE` | `POST /auth/setup` after a user already exists |
+| 409 | `LAST_ADMIN` | Demoting or deleting the last `ADMIN` |
+| 409 | `CANNOT_DELETE_SELF` | Deleting your own account |
 | 413 | `PAYLOAD_TOO_LARGE` | JSON body larger than 1 MB |
+| 429 | `ACCOUNT_LOCKED` | 5 consecutive failed logins from one address for one username (15-minute lock for that username + address pair), or the progressive per-username lock after 10 failures from any address (`Retry-After`) |
+| 429 | `RATE_LIMITED` | General API limit (default 600 requests / minute / IP) or the per-IP login limit (`Retry-After`) |
 | 500 | `INTERNAL_ERROR` | Unexpected error (the stack is never returned; it is recorded as an ACTUAL error event) |
+| 502 | `TOOL_FAILED` | A local tool failed after its retries (`POST /tools/:name/invoke`); the message is generic (`details: {toolCallId, attempts}`), the cause is in the ACTUAL tool / error events |
 | 500 | `PRICING_UNAVAILABLE` | No pricing row for the model *and* the `*/*` fallback row is missing |
+
+### Authentication
+
+- Cookie `sg_session` (`__Host-sg_session` when `COOKIE_SECURE=true`; HttpOnly, `SameSite=Strict`, `Secure` when `COOKIE_SECURE=true`) is set by `POST /auth/login` and `POST /auth/setup` and cleared by `POST /auth/logout`. Sessions last `SESSION_TTL_HOURS` (default 12) and expire after 30 minutes without a request.
+- `X-CSRF-Token: <data.csrfToken>` is required on every `POST` / `PUT` / `PATCH` / `DELETE` after login (not on login / setup themselves). Missing or wrong: `403 CSRF_INVALID`. The token is returned by login, setup and `GET /auth/me` and stays valid for that session.
+- Roles: `ADMIN` may do everything; `VIEWER` may only read (plus `POST /auth/logout`, `POST /auth/password`, `POST /cost/calculate`, `DELETE /auth/sessions/:id`). Other writes: `403 FORBIDDEN`.
+- Browsers: a cross-site `Origin` on a write is refused with `403 FORBIDDEN_ORIGIN` before anything else runs.
+- Rate limit headers on every `/api` response: `RateLimit-Limit`, `RateLimit-Remaining`; `Retry-After` on `429`.
+- Authenticated responses are `Cache-Control: no-store`.
 
 ### Pagination, sorting, dates
 
@@ -54,10 +89,45 @@ All money in JSON is a **decimal string with 12 fraction digits** (e.g. `"0.0000
 ## 2. Health
 
 ### `GET /health`
-`200` `{ "data": { "status": "ok", "version": "0.1.0", "simulated": true, "label": "DEMO / SIMULATED", "time": "<ISO>" } }`. Not written to the execution log.
+Public (no session). `200` `{ "data": { "status": "ok", "version": "0.1.0", "simulated": true, "label": "DEMO / SIMULATED", "time": "<ISO>" } }`. Not written to the execution log.
 
 ```bash
 curl -s $API/health
+```
+
+## 2a. Authentication and users
+
+Source: `backend/src/modules/auth/router.ts`, DTOs in `shared/auth.ts`. Rules (lockout, hashing, sessions) are in [SECURITY.md](SECURITY.md).
+When the server runs with `AUTH_ENABLED=false`, only `GET /auth/status` exists (`{ authEnabled: false, setupRequired: false, authenticated: false }`); every other `/auth/*` route answers `404 AUTH_DISABLED`.
+
+| Method & path | Access | Body / notes | Success | Errors |
+|---|---|---|---|---|
+| `GET /auth/status` | public | `AuthStatusDto`: `authEnabled, setupRequired (true while no user exists), authenticated, user?` | 200 | |
+| `POST /auth/setup` | public, only while zero users exist | `{ username, password }` -> creates the first `ADMIN`, logs in, sets the cookie. `data: { user, csrfToken }` | 201 | 400 (username / password policy), 409 `SETUP_COMPLETE`, 429 |
+| `POST /auth/login` | public | `{ username, password }`. Rotates the session (the presented cookie's session is deleted). `data: { user, csrfToken }`. Cookie name is `sg_session`, or `__Host-sg_session` when `COOKIE_SECURE=true` | 200 | 400, 401 `INVALID_CREDENTIALS`, 429 `ACCOUNT_LOCKED` / `RATE_LIMITED` |
+| `GET /auth/me` | any role | `data: { user, csrfToken }` (use it to restore the CSRF token after a page reload) | 200 | 401 |
+| `POST /auth/logout` | any role | deletes the session, clears the cookie. `data: { loggedOut: true }` | 200 | 401, 403 `CSRF_INVALID` |
+| `POST /auth/password` | any role | `{ currentPassword, newPassword }`. Revokes all your **other** sessions. `data: { changed: true, otherSessionsRevoked }` | 200 | 400 (policy), 403 `INVALID_CURRENT_PASSWORD`, 429 `ACCOUNT_LOCKED` |
+| `GET /auth/sessions` | any role | your own sessions: `UserSessionDto[]` (`id, createdAt, lastSeenAt, expiresAt, ip, userAgent, current`); never tokens | 200 | 401 |
+| `DELETE /auth/sessions/:id` | any role | revoke one of your own sessions | 204 | 404 |
+| `GET /auth/users` | ADMIN | `ManagedUserDto[]`: user + `failedAttempts, lockedUntil, locked, activeSessions` | 200 | 403 |
+| `POST /auth/users` | ADMIN | `{ username, password, role: "ADMIN" \| "VIEWER" }` | 201 | 400, 403, 409 `CONFLICT` |
+| `PATCH /auth/users/:id` | ADMIN | at least one of `{ role?, password?, unlock? }` (a password reset revokes that user's sessions and clears their lockouts; `unlock: true` clears the lockout; an admin cannot set their **own** password here: `400 USE_PASSWORD_ENDPOINT`) | 200 | 400, 403, 404, 409 `LAST_ADMIN` |
+| `DELETE /auth/users/:id` | ADMIN | sessions cascade | 204 | 403, 404, 409 `CANNOT_DELETE_SELF` / `LAST_ADMIN` |
+
+Username: 3-32 characters of `a-z 0-9 . _ -` (stored lower-case). Password: 12-128 characters, must not contain the username, must not be a common / repeated / sequential password.
+Auth events are recorded as activity events `auth.setup`, `auth.login.success|failure|locked`, `auth.logout`, `auth.password.changed`, `auth.user.created|updated|deleted`.
+
+```bash
+curl -s $API/auth/status                          # {"data":{"authEnabled":true,"setupRequired":false,"authenticated":false}}
+c $API/auth/me
+c -X POST $API/auth/users -H 'content-type: application/json' \
+  -d '{"username":"reader","password":"another-long-passphrase","role":"VIEWER"}'
+c -X PATCH $API/auth/users/<userId> -H 'content-type: application/json' -d '{"unlock":true}'
+c $API/auth/sessions
+c -X POST $API/auth/logout
+curl -s -X POST $API/projects -H 'content-type: application/json' -d '{"name":"x"}'
+# {"error":{"code":"UNAUTHENTICATED","message":"Authentication required"}}
 ```
 
 ## 3. Dashboard
@@ -75,7 +145,7 @@ Response fields: `range`, `simulated`, `label`, `totals` (`spendUsd, requests, s
 `recentActivity[]` (10), `recentErrors[]` (10 failed usage events), `recentAlerts[]` (10; with `projectId`: alerts of that project's budgets and of global budgets). `dailySpend` is a single grouped SQL query (exact int64 sums).
 
 ```bash
-curl -s "$API/dashboard?days=7"
+c "$API/dashboard?days=7"
 ```
 
 ## 4. Projects
@@ -97,18 +167,18 @@ Create / update / archive / unarchive / delete emit activity events `project.cre
 
 ```bash
 # create a test project and keep its id
-PID=$(curl -s -X POST $API/projects -H 'content-type: application/json' \
+PID=$(c -X POST $API/projects -H 'content-type: application/json' \
   -d '{"name":"Docs Demo","description":"curl example","isTest":true}' | jid id)
 echo $PID
 
 # duplicate name -> 409
-curl -s -X POST $API/projects -H 'content-type: application/json' -d '{"name":"docs demo"}'
+c -X POST $API/projects -H 'content-type: application/json' -d '{"name":"docs demo"}'
 # {"error":{"code":"CONFLICT","message":"A project named \"Docs Demo\" already exists","details":{"field":"name"}}}
 
-curl -s "$API/projects?status=ACTIVE&includeTest=true&search=demo"
-curl -s -X PATCH  $API/projects/$PID -H 'content-type: application/json' -d '{"description":null}'
-curl -s -X POST   $API/projects/$PID/archive
-curl -s -X DELETE $API/projects/$PID -i        # 204 for a test project
+c "$API/projects?status=ACTIVE&includeTest=true&search=demo"
+c -X PATCH  $API/projects/$PID -H 'content-type: application/json' -d '{"description":null}'
+c -X POST   $API/projects/$PID/archive
+c -X DELETE $API/projects/$PID -i        # 204 for a test project
 ```
 
 ## 5. Providers and request simulation
@@ -128,27 +198,31 @@ Runs the [mock pipeline](ARCHITECTURE.md#4-the-mock-request-pipeline). Returns *
 | `maxOutputTokens` | int 1..8192 | engine default 256 |
 | `temperature` | number 0..2 | |
 | `simulateFailure` | `none` \| `error` \| `timeout` \| `rate_limit` | default `none` |
-| `simulateAgentActivity` | boolean | default `false`; also emits SIMULATED context / memory / bus / tool events on the same trace |
+| `simulateAgentActivity` | boolean | default `false`; also emits SIMULATED context / memory / bus / tool events on the same trace (demo generator; the real runtime events below are emitted regardless) |
+| `injectMemory` | boolean | default `true`: prepend the project's enabled memory items (real `MemoryStore`) to the provider prompt; `false` skips injection |
 
-Response `MockProviderResponse`: `requestId, traceId, simulated, label, provider, model, projectId, status, content (null on failure), finishReason (stop|length|error), usage {inputTokens, outputTokens, cachedTokens}, cost (CostBreakdown), durationMs (simulated), error?, budgetAlerts[], usageEventId`.
+Response `MockProviderResponse`: `requestId, traceId, simulated, label, provider, model, projectId, status, content (null on failure), finishReason (stop|length|error), usage {inputTokens, outputTokens, cachedTokens}, cost (CostBreakdown), durationMs (simulated), error?, budgetAlerts[], usageEventId`, plus the real-runtime summaries (metadata only, no content):
+`memory { injected, items, estimatedTokens, truncated, droppedItems }`, `context { contextId, version, sizeBytes, estimatedTokens, windowTokens, truncated }`, `tools[]` (`name, toolCallId, status SUCCESS|FAILURE, attempts, durationMs` for the `pricing.lookup` and `budget.status` preflight calls), `budgetPreflight { status OK|UNAVAILABLE, budgets, highestPercent, overLimit }`, `httpRequestId`.
+The same `memory` / `context` / `tools` / `budgetPreflight` objects are stored in `UsageEvent.metadata`. With memory items present, token counts reflect prompt **plus** injected memory.
 Simulated error codes: `PROVIDER_ERROR` (HTTP 500-style), `PROVIDER_TIMEOUT`, `RATE_LIMITED`.
 
 ```bash
-curl -s -X POST $API/providers/requests -H 'content-type: application/json' -d "{
+c -X POST $API/providers/requests -H 'content-type: application/json' -d "{
   \"projectId\":\"$PID\",\"provider\":\"openai\",\"model\":\"gpt-4o-mini\",
   \"prompt\":\"Summarise this\",\"maxOutputTokens\":128}"
 # {"data":{"requestId":"req_...","traceId":"...","simulated":true,"label":"DEMO / SIMULATED",
+#  "memory":{"injected":false,"items":0,...},"context":{"version":2,...},"tools":[{"name":"pricing.lookup",...},{"name":"budget.status",...}],
 #  "status":"SUCCESS","finishReason":"length","usage":{"inputTokens":4,"outputTokens":128,"cachedTokens":0},
 #  "cost":{"totalCostUsd":"0.000064480000","costClass":"SIMULATED","pricingVersion":2,...},"budgetAlerts":[],...}}
 
 # simulated failure, with agent activity on the trace
-curl -s -X POST $API/providers/requests -H 'content-type: application/json' -d "{
+c -X POST $API/providers/requests -H 'content-type: application/json' -d "{
   \"projectId\":\"$PID\",\"provider\":\"anthropic\",\"model\":\"claude-haiku\",
   \"prompt\":\"hello\",\"simulateFailure\":\"timeout\",\"simulateAgentActivity\":true}"
 ```
 
 ### `POST /simulations/seed`
-Generates deterministic, **backdated** simulated requests through the same pipeline; runs inline and returns when finished; tracked as a `DEMO_SEED` background task (source `SIMULATED`).
+Generates deterministic, **backdated** simulated requests through the same pipeline (in `silent` runtime mode with memory injection off: no runtime events and no tool calls are written for the bulk requests); runs inline and returns when finished; tracked as a `DEMO_SEED` background task (source `SIMULATED`).
 
 | Body field | Type | Default |
 |---|---|---|
@@ -162,18 +236,60 @@ Generates deterministic, **backdated** simulated requests through the same pipel
 `201` `{ data: { taskId, created, projectId, failures } }`. Errors: 400, 404 (unknown `projectId`), 409 (archived project).
 
 ```bash
-curl -s -X POST $API/simulations/seed -H 'content-type: application/json' \
+c -X POST $API/simulations/seed -H 'content-type: application/json' \
   -d '{"requests":60,"spreadDays":7,"includeFailures":true,"includeAgentActivity":true}'
 # {"data":{"taskId":"...","created":60,"projectId":"...","failures":2}}
 ```
 
 ### `POST /simulations/agent-run`
-Body `{ projectId (required), simulateFailure? ('none'|'error'|'timeout'|'rate_limit', default 'none') }`. Emits one SIMULATED agent execution (`agent.run` trace) with context, memory, bus and tool events (including one tool retry) and **no usage event**. A non-`none` failure mode deterministically fails one step (`error` -> memory, `rate_limit` -> bus, `timeout` -> tool).
+Body `{ projectId (required), simulateFailure? ('none'|'error'|'timeout'|'rate_limit', default 'none') }`. Emits one **SIMULATED demo** agent execution (`agent.run` trace; scripted events, not produced by the real runtime) with context, memory, bus and tool events (including one tool retry) and **no usage event**. A non-`none` failure mode deterministically fails one step (`error` -> memory, `rate_limit` -> bus, `timeout` -> tool).
 `201` `{ data: { traceId, requestId, status: "SUCCESS"|"FAILURE", simulated, label, error?: {message} } }`. Errors: 400, 404, 409.
 
 ```bash
-curl -s -X POST $API/simulations/agent-run -H 'content-type: application/json' \
+c -X POST $API/simulations/agent-run -H 'content-type: application/json' \
   -d "{\"projectId\":\"$PID\",\"simulateFailure\":\"timeout\"}"
+```
+
+## 5a. Project memory and local tools (real runtime)
+
+Implemented by `backend/src/modules/runtime/*`; DTOs in `shared/runtime.ts`. Architecture: [ARCHITECTURE.md](ARCHITECTURE.md#4a-the-real-runtime-modulesruntime).
+
+### Project memory
+`MemoryItemDto`: `id, projectId, title, category (instructions|preferences|facts|other), content, enabled, sizeBytes, estimatedTokens (ceil(chars/4), min 1), createdAt, updatedAt`.
+Limits: title 1..120 chars, content 1..8000 chars, 200 items per project. Enabled items are injected into provider requests of that project, oldest first.
+**Content is user data**: it is returned here and nowhere else (logs, events and exports only carry ids, sizes, token estimates and a hash prefix).
+
+| Method & path | Description | Success | Errors |
+|---|---|---|---|
+| `GET /projects/:id/memory` | All items of the project (oldest first, not paged). | 200 | 404 |
+| `POST /projects/:id/memory` | Body `{ title, category, content, enabled? (default true) }`. | 201 | 400, 404, 409 (limit) |
+| `PATCH /projects/:id/memory/:itemId` | Body with at least one of `title, category, content, enabled`. | 200 | 400, 404 |
+| `DELETE /projects/:id/memory/:itemId` | | 204 | 404 |
+
+Writes record `project.memory.created|updated|deleted` activity (ACTUAL, metadata only). Archived projects can still be edited.
+
+### Local tools
+Real, read-only local tools executed by the `ToolExecutor` (Zod-validated input, up to 2 retries with 20 / 40 ms back-off for transient errors only, a TOOL span and tool events per call; `inputMeta` stores parameter names, types, sizes and a hash, never values).
+
+| Tool | Params | Output |
+|---|---|---|
+| `pricing.lookup` | `provider` (string), `model` (string) | `inputPerMTok, outputPerMTok, cachedPerMTok, pricingVersion, costClass, unknownModel` |
+| `budget.status` | `projectId` | `count, highestPercent, overLimit, budgets[]` (project and global budgets, current period) |
+| `usage.summary` | `projectId`, `days` (1..365, default 7) | `requests, failures, inputTokens, outputTokens, cachedTokens, costUsd` |
+
+| Method & path | Description | Success | Errors |
+|---|---|---|---|
+| `GET /tools` | `ToolDescriptorDto[]`: `name, description, params[], maxRetries, source: "ACTUAL"`. | 200 | |
+| `POST /tools/:name/invoke` | Body `{ input: { ... } }`. Starts a `tool.invoke` trace (ACTUAL). `200` `{ data: { output, traceId, toolCallId, attempts, durationMs } }`. ADMIN only (VIEWER gets 403). | 200 | 400 (invalid input), 404 (unknown tool), 502 `TOOL_FAILED` |
+
+```bash
+c $API/projects/$PID/memory
+c -X POST $API/projects/$PID/memory -H 'content-type: application/json' \
+  -d '{"title":"Tone","category":"instructions","content":"Answer in one short paragraph."}'
+c $API/tools
+c -X POST $API/tools/pricing.lookup/invoke -H 'content-type: application/json' \
+  -d '{"input":{"provider":"openai","model":"gpt-4o-mini"}}'
+c -X POST $API/tools/budget.status/invoke -H 'content-type: application/json' -d "{\"input\":{\"projectId\":\"$PID\"}}"
 ```
 
 ## 6. Usage
@@ -203,10 +319,10 @@ Same filters as `GET /usage` (no paging or sorting, newest first, **all** matchi
 `:id` is the usage event id **or** its `requestId`. `404` if neither matches.
 
 ```bash
-curl -s "$API/usage?status=FAILURE&sort=costUsd&order=desc&pageSize=5"
-curl -s "$API/usage?search=gpt-4o&from=2026-11-01&to=2026-11-30"
-curl -s -OJ "$API/usage/export.csv?status=FAILURE&from=2026-11-01"
-curl -s $API/usage/req_0123456789abcdef   # by requestId
+c "$API/usage?status=FAILURE&sort=costUsd&order=desc&pageSize=5"
+c "$API/usage?search=gpt-4o&from=2026-11-01&to=2026-11-30"
+c -OJ "$API/usage/export.csv?status=FAILURE&from=2026-11-01"
+c $API/usage/req_0123456789abcdef   # by requestId
 ```
 
 ## 7. Cost and pricing
@@ -217,11 +333,11 @@ Body `{ provider, model, inputTokens, outputTokens, cachedTokens?, at? }` (token
 `inputTokens` are the **non-cached** input tokens; cached tokens are billed separately at the cached rate.
 
 ```bash
-curl -s -X POST $API/cost/calculate -H 'content-type: application/json' \
+c -X POST $API/cost/calculate -H 'content-type: application/json' \
   -d '{"provider":"openai","model":"gpt-4o-mini","inputTokens":1000,"outputTokens":500,"cachedTokens":200,"at":"2024-06-01T00:00:00Z"}'
 # totalCostUsd "0.000465000000", pricingVersion 1 (v1 was effective on 2024-06-01)
 
-curl -s -X POST $API/cost/calculate -H 'content-type: application/json' \
+c -X POST $API/cost/calculate -H 'content-type: application/json' \
   -d '{"provider":"openai","model":"made-up","inputTokens":10,"outputTokens":10}'
 # costClass "ESTIMATED", unknownModel true, fallback prices 5.000000 / 15.000000
 ```
@@ -248,7 +364,7 @@ Creates a **new version** (`max + 1`); existing versions are immutable.
 `201` `PricingDto`.
 
 ```bash
-curl -s -X POST $API/cost/pricing -H 'content-type: application/json' \
+c -X POST $API/cost/pricing -H 'content-type: application/json' \
   -d '{"provider":"openai","model":"gpt-4o-mini","inputPerMTok":"0.100000","outputPerMTok":"0.400000","cachedPerMTok":"0.050000","note":"docs example"}'
 ```
 
@@ -272,15 +388,15 @@ Alerts are created automatically after each provider request (included in `budge
 `BudgetAlertDto`: `id, budgetId, budgetName, projectId, projectName, period, threshold, periodStart, periodEnd, spendUsd, limitUsd, percent, createdAt`.
 
 ```bash
-curl -s -X POST $API/budgets -H 'content-type: application/json' \
+c -X POST $API/budgets -H 'content-type: application/json' \
   -d "{\"projectId\":\"$PID\",\"name\":\"Daily cap\",\"period\":\"DAILY\",\"limitUsd\":\"0.000100\"}"
 # second DAILY budget for the same project -> 409 CONFLICT {"details":{"existingBudgetId":"..."}}
 
-curl -s "$API/budgets/utilization?projectId=$PID"
-curl -s "$API/budgets/<budgetId>/utilization?periods=3"
-curl -s -X POST $API/budgets/evaluate
-curl -s "$API/budget-alerts?threshold=100&from=2026-11-01"
-curl -s -X PATCH $API/budgets/<budgetId> -H 'content-type: application/json' -d '{"limitUsd":"5.00","active":true}'
+c "$API/budgets/utilization?projectId=$PID"
+c "$API/budgets/<budgetId>/utilization?periods=3"
+c -X POST $API/budgets/evaluate
+c "$API/budget-alerts?threshold=100&from=2026-11-01"
+c -X PATCH $API/budgets/<budgetId> -H 'content-type: application/json' -d '{"limitUsd":"5.00","active":true}'
 ```
 
 ## 9. Activity, traces, background tasks
@@ -311,10 +427,10 @@ Paged `BackgroundTaskDto` (`id, name, kind RETENTION_SWEEP|DEMO_SEED|BUDGET_EVAL
 Query: `status`, `kind`, `source`, `from`, `to` (on `createdAt`), `page`, `pageSize`.
 
 ```bash
-curl -s "$API/activity?type=usage.recorded,request.failed&level=ERROR&pageSize=5"
-curl -s "$API/traces?status=ERROR&source=SIMULATED"
-curl -s $API/traces/<traceId>
-curl -s "$API/background-tasks?kind=DEMO_SEED"
+c "$API/activity?type=usage.recorded,request.failed&level=ERROR&pageSize=5"
+c "$API/traces?status=ERROR&source=SIMULATED"
+c $API/traces/<traceId>
+c "$API/background-tasks?kind=DEMO_SEED"
 ```
 
 ## 10. Observability
@@ -325,7 +441,7 @@ Defaults: `from`/`to` default to the **last 7 days** ending now. All endpoints a
 |---|---|---|
 | `GET /observability/overview` | `from`, `to` | `ObservabilityOverview`: `range`, `totals` {`operations, successful, failed, memoryInjections, busOperations, toolCalls, contextUpdates, averageDurationMs, failureRate (0..1)`}, `bySource {actual, simulated}`, `recentErrors[]` (10), `recentTraces[]` (10). An *operation* = execution-log row with status SUCCESS or FAILURE. |
 | `GET /observability/performance` | `from`, `to`, `bucket` (`hour`\|`day`; default hour when range <= 48 h) | `PerformanceStats`: avg / p95 (nearest-rank) for request, tool and memory-injection latency, `operationCounts`, per-`operations` stats, `slowOperations[]` (duration strictly above the `slowOperationMs` setting, max 20), `durationSeries[]` |
-| `GET /observability/sources` | - | `InstrumentationSourceDto[]` (`id, kind, name, status CONNECTED\|SIMULATED_ONLY\|UNAVAILABLE, actualEvents, simulatedEvents, lastEventAt, notes`), see [honesty rules](ARCHITECTURE.md#52-source-semantics-actual-vs-simulated-vs-unavailable) |
+| `GET /observability/sources` | - | `InstrumentationSourceDto[]` (`id, kind (request, memory, bus, tool, context, error, simulator), name, status CONNECTED\|SIMULATED_ONLY\|UNAVAILABLE, actualEvents, simulatedEvents, lastEventAt, notes`): `CONNECTED` = a real in-app component is registered (project memory store, request context manager, local tool executor, in-process bus, request middleware, error recording); the separate `demo-simulator` entry is always `SIMULATED_ONLY`. See [honesty rules](ARCHITECTURE.md#52-source-semantics-actual-vs-simulated-vs-unavailable) |
 | `GET /observability/errors` | `category` (VALIDATION, PROVIDER, TIMEOUT, TOOL, BUS, MEMORY, CONTEXT, DATABASE, INTERNAL, UNKNOWN), `search` (message, error message, operation, event type), `traceId`, `source`, `from`, `to`, `page`, `pageSize` | paged `ExecutionLogDto` where level = ERROR or status = FAILURE |
 | `GET /observability/errors/groups` | same filters, no paging | `ErrorGroup[]` `{category, count, lastSeen}`, most frequent first |
 | `GET /observability/memory-events` | `traceId`, `projectId`, `source`, `status` (STARTED\|SUCCESS\|FAILURE), `search`, `from`, `to`, `page`, `pageSize` | paged `MemoryEventDto` |
@@ -334,12 +450,12 @@ Defaults: `from`/`to` default to the **last 7 days** ending now. All endpoints a
 | `GET /observability/context-events` | same, `status` SUCCESS\|FAILURE | paged `ContextEventDto` |
 
 ```bash
-curl -s "$API/observability/overview?from=2026-11-16&to=2026-11-23"
-curl -s "$API/observability/performance?bucket=day"
-curl -s $API/observability/sources
-# memory / tool / context report SIMULATED_ONLY (or UNAVAILABLE); they are never CONNECTED
-curl -s "$API/observability/errors/groups?source=SIMULATED"
-curl -s "$API/observability/tool-events?status=FAILURE&traceId=<traceId>"
+c "$API/observability/overview?from=2026-11-16&to=2026-11-23"
+c "$API/observability/performance?bucket=day"
+c $API/observability/sources
+# memory / bus / tool / context are CONNECTED (real in-app components, even with 0 events); demo-simulator is SIMULATED_ONLY
+c "$API/observability/errors/groups?source=SIMULATED"
+c "$API/observability/tool-events?status=FAILURE&traceId=<traceId>"
 ```
 
 ## 11. Logs, exports, settings, retention
@@ -375,9 +491,9 @@ Differences from the list endpoints: in `activity` exports `type` is an exact ma
 The usage CSV is separate: `GET /usage/export.csv`.
 
 ```bash
-curl -s -OJ "$API/export/logs?format=jsonl&category=REQUEST&from=2026-11-23"
-curl -s -OJ "$API/export/errors?format=csv"
-curl -s "$API/export/nope"            # 404 NOT_FOUND
+c -OJ "$API/export/logs?format=jsonl&category=REQUEST&from=2026-11-23"
+c -OJ "$API/export/errors?format=csv"
+c "$API/export/nope"            # 404 NOT_FOUND
 ```
 
 ### `GET /settings`, `PUT /settings`
@@ -385,16 +501,16 @@ curl -s "$API/export/nope"            # 404 NOT_FOUND
 `PUT` body (all optional, **unknown keys are rejected**): `retentionDays` int 0..3650 (`0` = keep forever), `slowOperationMs` int 1..600000, `captureContentPlaintext` may only be `false` (anything else -> 400). A real change records a `settings.updated` activity event.
 
 ```bash
-curl -s -X PUT $API/settings -H 'content-type: application/json' -d '{"retentionDays":14}'
+c -X PUT $API/settings -H 'content-type: application/json' -d '{"retentionDays":14}'
 # {"data":{"retentionDays":14,"slowOperationMs":500,"captureContentPlaintext":false}}
-curl -s -X PUT $API/settings -H 'content-type: application/json' -d '{"captureContentPlaintext":true}'   # 400
+c -X PUT $API/settings -H 'content-type: application/json' -d '{"captureContentPlaintext":true}'   # 400
 ```
 
 ### `POST /logging/retention/run`
 No body. Runs the retention sweep now, `200` `{ data: BackgroundTaskDto }` (`kind: RETENTION_SWEEP`, `result` = `{ trigger: "manual", retentionDays, skipped, cutoff, deleted {...per table, logFiles}, totalDeleted }`; the in-process scheduler (`startRetentionScheduler`: first run 60s after start, then every 6h, never overlapping, skipped when `retentionDays = 0`) creates the same task with `trigger: "scheduled"`). With `retentionDays = 0` it is a no-op with `skipped: true`.
 
 ```bash
-curl -s -X POST $API/logging/retention/run
+c -X POST $API/logging/retention/run
 ```
 
 ---
@@ -404,15 +520,19 @@ curl -s -X POST $API/logging/retention/run
 ```bash
 API=http://localhost:4000/api
 jid() { node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).data.'"${1:-id}"; }
+JAR=$(mktemp)
+CSRF=$(curl -s -c $JAR -X POST $API/auth/login -H 'content-type: application/json' \
+  -d '{"username":"alice","password":"a-long-unique-passphrase"}' | jid csrfToken)   # your own account
+c() { curl -s -b $JAR -H "X-CSRF-Token: $CSRF" "$@"; }
 
-PID=$(curl -s -X POST $API/projects -H 'content-type: application/json' -d '{"name":"Walkthrough","isTest":true}' | jid id)
-curl -s -X POST $API/budgets -H 'content-type: application/json' \
+PID=$(c -X POST $API/projects -H 'content-type: application/json' -d '{"name":"Walkthrough","isTest":true}' | jid id)
+c -X POST $API/budgets -H 'content-type: application/json' \
   -d "{\"projectId\":\"$PID\",\"name\":\"Tiny\",\"period\":\"DAILY\",\"limitUsd\":\"0.0001\"}" > /dev/null
-curl -s -X POST $API/providers/requests -H 'content-type: application/json' \
+c -X POST $API/providers/requests -H 'content-type: application/json' \
   -d "{\"projectId\":\"$PID\",\"provider\":\"anthropic\",\"model\":\"claude-sonnet\",\"prompt\":\"hi\",\"simulateAgentActivity\":true}" \
   | tee /tmp/resp.json | node -pe 'const d=JSON.parse(require("fs").readFileSync(0,"utf8")).data; `${d.status} ${d.cost.totalCostUsd} alerts=${d.budgetAlerts.length} trace=${d.traceId}`'
 TRACE=$(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/resp.json","utf8")).data.traceId')
-curl -s $API/traces/$TRACE            # spans + merged timeline
-curl -s "$API/budgets/utilization?projectId=$PID"
-curl -s -X DELETE $API/projects/$PID  # cleans up the test project (204)
+c $API/traces/$TRACE            # spans + merged timeline
+c "$API/budgets/utilization?projectId=$PID"
+c -X DELETE $API/projects/$PID  # cleans up the test project (204)
 ```

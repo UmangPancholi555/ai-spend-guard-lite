@@ -13,6 +13,7 @@ import { fmtDateTime, fmtInt, fmtUsd } from '../lib/format';
 import { Modal, ConfirmDialog } from '../components/projects/Modal';
 import ProjectForm from '../components/projects/ProjectForm';
 import { errMessage, slugify } from '../components/projects/util';
+import { useToast } from '../components/ui/Toast';
 
 type Dialog =
   | { kind: 'create' }
@@ -21,6 +22,7 @@ type Dialog =
   | null;
 
 export default function ProjectsPage() {
+  const toast = useToast();
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'' | 'ACTIVE' | 'ARCHIVED'>('');
@@ -44,14 +46,14 @@ export default function ProjectsPage() {
 
   async function toggleArchive(p: ProjectWithUsage) {
     setActionError(undefined); setBusyId(p.id);
-    try { await api.post(`/projects/${p.id}/${p.status === 'ACTIVE' ? 'archive' : 'unarchive'}`); list.reload(); }
-    catch (e) { setActionError(`${p.name}: ${errMessage(e)}`); }
+    try { await api.post(`/projects/${p.id}/${p.status === 'ACTIVE' ? 'archive' : 'unarchive'}`); toast.success(p.status === 'ACTIVE' ? `Archived "${p.name}"` : `Restored "${p.name}"`); list.reload(); }
+    catch (e) { setActionError(`${p.name}: ${errMessage(e)}`); toast.error('Could not update project', `${p.name}: ${errMessage(e)}`); }
     finally { setBusyId(undefined); }
   }
 
   async function confirmDelete(p: ProjectWithUsage) {
     setDeleteBusy(true); setDeleteError(undefined);
-    try { await api.del(`/projects/${p.id}`); setDialog(null); list.reload(); }
+    try { await api.del(`/projects/${p.id}`); setDialog(null); toast.success(`Deleted "${p.name}"`); list.reload(); }
     catch (e) { setDeleteError(errMessage(e)); }
     finally { setDeleteBusy(false); }
   }
@@ -69,11 +71,11 @@ export default function ProjectsPage() {
       <Card className="mb-4">
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[12rem] flex-1">
-            <label htmlFor="project-search" className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Search</label>
+            <label htmlFor="project-search" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Search</label>
             <input id="project-search" type="search" className={`${inputCls} w-full`} placeholder="Project name or description" value={searchInput} onChange={e => setSearchInput(e.target.value)} data-testid="project-search" />
           </div>
           <div>
-            <label htmlFor="project-status" className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Status</label>
+            <label htmlFor="project-status" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Status</label>
             <select id="project-status" className={inputCls} value={status} onChange={e => { setStatus(e.target.value as typeof status); setPage(1); }} data-testid="project-status-filter">
               <option value="">All</option>
               <option value="ACTIVE">Active</option>
@@ -89,10 +91,10 @@ export default function ProjectsPage() {
 
       {actionError && <p role="alert" className="mb-3 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200" data-testid="project-action-error">{actionError}</p>}
 
-      <Async loading={list.loading && !list.data} error={list.error}>
+      <Async loading={list.loading && !list.data} error={list.error} skeleton="table">
         <Table
           head={['Project', 'Status', 'Requests', 'Failures', 'Tokens (in / out / cached)', 'Cost (simulated)', 'Last activity', 'Actions']}
-          empty={rows.length === 0 ? <EmptyState message="No projects match. Create one, or seed demo data from the Request Simulator." /> : undefined}
+          empty={rows.length === 0 ? <EmptyState message="No projects match. Create one, or seed demo data from the Request Simulator." action={<Button onClick={() => setDialog({ kind: 'create' })} data-testid="project-empty-cta">Create a project</Button>} /> : undefined}
         >
           {rows.map(p => {
             const slug = slugify(p.name);
@@ -102,11 +104,11 @@ export default function ProjectsPage() {
                 <Td className="whitespace-normal">
                   <Link to={`/projects/${p.id}`} className="font-medium text-brand-600 hover:underline dark:text-brand-100" data-testid={`project-link-${slug}`}>{p.name}</Link>
                   {p.isTest && <span className="ml-2"><Badge tone="blue">test</Badge></span>}
-                  {p.description && <div className="max-w-xs truncate text-xs text-slate-500 dark:text-slate-400" title={p.description}>{p.description}</div>}
+                  {p.description && <div className="max-w-xs truncate text-xs text-slate-600 dark:text-slate-400" title={p.description}>{p.description}</div>}
                 </Td>
                 <Td><Badge tone={p.status === 'ACTIVE' ? 'green' : 'slate'}>{p.status}</Badge></Td>
                 <Td>{fmtInt(p.usage.requests)}</Td>
-                <Td>{p.usage.failures > 0 ? <span className="text-red-600 dark:text-red-400">{fmtInt(p.usage.failures)}</span> : 0}</Td>
+                <Td>{p.usage.failures > 0 ? <span className="text-red-700 dark:text-red-400">{fmtInt(p.usage.failures)}</span> : 0}</Td>
                 <Td>{fmtInt(p.usage.inputTokens)} / {fmtInt(p.usage.outputTokens)} / {fmtInt(p.usage.cachedTokens)}</Td>
                 <Td><span title="DEMO / SIMULATED cost">{fmtUsd(p.usage.costUsd)}</span></Td>
                 <Td>{fmtDateTime(p.usage.lastActivityAt)}</Td>
@@ -131,7 +133,7 @@ export default function ProjectsPage() {
         <Modal title="New project" onClose={() => setDialog(null)} testId="project-create-dialog">
           <ProjectForm mode="create" onCancel={() => setDialog(null)} onSubmit={async v => {
             await api.post('/projects', { name: v.name, ...(v.description ? { description: v.description } : {}), isTest: v.isTest });
-            setDialog(null); setPage(1); list.reload();
+            setDialog(null); setPage(1); toast.success(`Created project "${v.name}"`); list.reload();
           }} />
         </Modal>
       )}
@@ -139,7 +141,7 @@ export default function ProjectsPage() {
         <Modal title={`Edit ${dialog.project.name}`} onClose={() => setDialog(null)} testId="project-edit-dialog">
           <ProjectForm mode="edit" initial={dialog.project} onCancel={() => setDialog(null)} onSubmit={async v => {
             await api.patch(`/projects/${dialog.project.id}`, { name: v.name, description: v.description || null, isTest: v.isTest });
-            setDialog(null); list.reload();
+            setDialog(null); toast.success(`Saved "${v.name}"`); list.reload();
           }} />
         </Modal>
       )}

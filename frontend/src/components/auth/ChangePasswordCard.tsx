@@ -5,8 +5,11 @@ import { Card } from '../ui/Card';
 import { Button, inputCls } from '../ui/Button';
 import { api } from '../../lib/api';
 import { FormError, FormField } from './AuthShell';
+import { errMessage } from '../projects/util';
+import { useToast } from '../ui/Toast';
 
 export default function ChangePasswordCard() {
+  const toast = useToast();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -25,7 +28,8 @@ export default function ChangePasswordCard() {
       const r = await api.post<{ otherSessionsRevoked: number }>('/auth/password', input);
       setDone(`Password changed. ${r.otherSessionsRevoked} other session${r.otherSessionsRevoked === 1 ? ' was' : 's were'} signed out.`);
       setCurrent(''); setNext(''); setConfirm('');
-    } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
+      toast.success('Password changed');
+    } catch (err) { setError(errMessage(err)); } finally { setBusy(false); }
   }
 
   return (

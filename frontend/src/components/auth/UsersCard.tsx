@@ -10,11 +10,14 @@ import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useApi';
 import { fmtDateTime } from '../../lib/format';
 import { FormError, FormField } from './AuthShell';
+import { errMessage } from '../projects/util';
+import { useToast } from '../ui/Toast';
 
 type RowMode = { kind: 'reset'; id: string } | { kind: 'delete'; id: string } | undefined;
 
 export default function UsersCard({ currentUserId }: { currentUserId: string }) {
   const { data, error, loading, reload } = useAsync(() => api.get<ManagedUserDto[]>('/auth/users'), []);
+  const toast = useToast();
   const [message, setMessage] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [mode, setMode] = useState<RowMode>();
@@ -28,8 +31,8 @@ export default function UsersCard({ currentUserId }: { currentUserId: string }) 
 
   async function run(fn: () => Promise<unknown>, ok: string) {
     setBusy(true); setActionError(undefined); setMessage(undefined);
-    try { await fn(); setMessage(ok); setMode(undefined); setResetPw(''); reload(); }
-    catch (e) { setActionError((e as Error).message); } finally { setBusy(false); }
+    try { await fn(); setMessage(ok); toast.success(ok); setMode(undefined); setResetPw(''); reload(); }
+    catch (e) { setActionError(errMessage(e)); toast.error('User update failed', errMessage(e)); } finally { setBusy(false); }
   }
   const patch = (u: ManagedUserDto, body: UpdateUserInput, ok: string) => run(() => api.patch<unknown>(`/auth/users/${encodeURIComponent(u.id)}`, body), ok);
 
@@ -42,8 +45,9 @@ export default function UsersCard({ currentUserId }: { currentUserId: string }) 
       const body: CreateUserInput = { username: newName.trim(), password: newPw, role: newRole };
       await api.post('/auth/users', body);
       setMessage(`User "${newName.trim().toLowerCase()}" created.`);
+      toast.success(`User "${newName.trim().toLowerCase()}" created`);
       setNewName(''); setNewPw(''); setNewRole('VIEWER'); reload();
-    } catch (err) { setCreateError((err as Error).message); } finally { setBusy(false); }
+    } catch (err) { setCreateError(errMessage(err)); } finally { setBusy(false); }
   }
 
   return (
@@ -51,7 +55,7 @@ export default function UsersCard({ currentUserId }: { currentUserId: string }) 
       <FormError id="account-users-error" testId="account-users-error" message={actionError} />
       <div role="status" aria-live="polite" data-testid="account-users-message" className={message ? 'mb-3 text-sm text-emerald-700 dark:text-emerald-300' : 'sr-only'}>{message ?? ''}</div>
 
-      <Async loading={loading && !data} error={error}>
+      <Async loading={loading && !data} error={error} skeleton="table">
         <div data-testid="account-users">
           <Table head={['User', 'Role', 'Status', 'Last login', 'Sessions', 'Actions']}>
             {(data ?? []).map(u => {

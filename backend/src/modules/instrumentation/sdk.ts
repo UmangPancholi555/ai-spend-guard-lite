@@ -29,7 +29,7 @@ import {
 } from '../../contracts/instrumentation';
 import { newSpanId, newTraceId } from '../../utils/ids';
 import { safeStringify } from '../../utils/serialize';
-import { createJsonlWriter } from './jsonl';
+import { createJsonlWriter, maxDirBytesFromEnv } from './jsonl';
 import { boundText, sanitizeAttributes } from './sanitize';
 
 export interface InstrumentationOptions {
@@ -38,6 +38,10 @@ export interface InstrumentationOptions {
   onError?: (error: unknown, context: string) => void;
   /** Max size of one JSONL day file before rolling over to `execution-<day>.<n>.jsonl` (default 50MB). */
   maxLogFileBytes?: number;
+  /** Cap on the TOTAL JSONL directory size (default 500MB, env LOG_DIR_MAX_MB): oldest day files are dropped first, then appends are suspended with one warning. */
+  maxLogDirBytes?: number;
+  /** JSONL write batching: max delay in ms before buffered lines hit disk (default 250; 0 = write-through, the default under NODE_ENV=test/VITEST). Call `flushLogs()` on shutdown. */
+  jsonlFlushMs?: number;
   /**
    * Print write failures to console.error (default: true except when NODE_ENV=test or VITEST is set).
    * Rate limited: at most one line per failure context per `errorLogIntervalMs`, with a count of suppressed repeats.
@@ -73,10 +77,16 @@ interface LogEntry extends Correlation {
 
 export function createInstrumentation(prisma: PrismaClient, opts: InstrumentationOptions): Instrumentation {
   const { logDir } = opts;
-  const jsonl = createJsonlWriter(logDir, opts.maxLogFileBytes);
   const consoleErrors = opts.consoleErrors ?? !(process.env.NODE_ENV === 'test' || process.env.VITEST);
   const windowMs = opts.errorLogIntervalMs ?? 30_000;
   const lastPrinted = new Map<string, { at: number; suppressed: number }>();
+
+  const isTest = process.env.NODE_ENV === 'test' || !!process.env.VITEST;
+  const jsonl = createJsonlWriter(logDir, {
+    maxFileBytes: opts.maxLogFileBytes, maxDirBytes: opts.maxLogDirBytes ?? maxDirBytesFromEnv(),
+    flushIntervalMs: opts.jsonlFlushMs ?? (isTest ? 0 : undefined),
+    onError: (e, ctx) => reportFailure(ctx, e),
+  });
 
   function reportFailure(context: string, e: unknown) {
     if (consoleErrors) {
@@ -115,7 +125,7 @@ export function createInstrumentation(prisma: PrismaClient, opts: Instrumentatio
         errorCategory: dto.errorCategory, errorMessage: dto.errorMessage, stack: dto.stack,
       },
     }));
-    try { jsonl.append(dto); } catch (err) { reportFailure('jsonl.append', err); }
+    await jsonl.append(dto);
     return dto;
   }
 

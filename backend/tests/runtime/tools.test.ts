@@ -132,6 +132,39 @@ describe('ToolExecutor retries and failures', () => {
     expect(done[2].outputMeta).toMatchObject({ status: 'error', willRetry: false, attempts: 3 });
   });
 
+  it('client-facing error is generic (no raw error text) while the tool event keeps the detail', async () => {
+    const { instr, ex } = exec();
+    const tool = flaky(99, () => new Error('PrismaClientKnownRequestError: secret table detail xyz')); ex.register(tool);
+    const err = await ex.execute('test.flaky', { q: 'x' }).catch(e => e);
+    expect(err.message).toBe('Tool execution failed');
+    expect(err.details).toEqual({ toolCallId: err.toolCallId, attempts: 1 });
+    expect(JSON.stringify({ m: err.message, d: err.details })).not.toContain('xyz');
+    const done = instr.calls.filter(c => c.fn === 'recordTool' && c.phase === 'COMPLETED') as any[];
+    expect(done[0].errorMessage).toContain('secret table detail xyz'); // full detail only in the (sanitized) server-side event
+  });
+
+  it('POST /tools/:name/invoke returns a generic 502 body; pipeline `tools` summary and memory FAILED path expose no raw error text', async () => {
+    const leak = 'LEAKY-DB-ERROR-TEXT-777';
+    const failing = { ...ctx.deps, cost: { calculate: async () => { throw new Error(leak); } } };
+    const { createRuntimeRouter } = await import('../../src/modules/runtime');
+    const express = (await import('express')).default;
+    const { errorHandler } = await import('../../src/middleware/errorHandler');
+    const app = express(); app.use(express.json()); app.use('/api', createRuntimeRouter(failing)); app.use(errorHandler(failing.instr));
+    const r = await request(app).post('/api/tools/pricing.lookup/invoke').send({ input: { provider: 'openai', model: 'gpt-4o' } });
+    expect(r.status).toBe(502);
+    expect(r.body.error).toMatchObject({ code: 'TOOL_FAILED', message: 'Tool execution failed', details: { attempts: 1 } });
+    expect(r.body.error.details.toolCallId).toMatch(/^call_/);
+    expect(JSON.stringify(r.body)).not.toContain(leak);
+    const ev = await ctx.prisma.toolCallEvent.findFirstOrThrow({ where: { toolCallId: r.body.error.details.toolCallId } });
+    expect(ev.errorMessage).toContain(leak); // detail stays in the event
+    // pipeline response
+    const p = await makeProject(ctx.prisma);
+    const calc = ctx.deps.cost.calculate.bind(ctx.deps.cost);
+    const deps = { ...ctx.deps, cost: { calculate: async (i: any) => { if (i.inputTokens === 0 && i.outputTokens === 0) throw new Error(leak); return calc(i); } } };
+    const res = await executeMockRequest(deps, { projectId: p.id, provider: 'openai', model: 'gpt-4o', prompt: 'x' }, { latency: false });
+    expect(JSON.stringify(res)).not.toContain(leak);
+  });
+
   it('non-transient errors are not retried', async () => {
     const { instr, ex } = exec();
     const tool = flaky(99, () => new Error('bad thing')); ex.register(tool);

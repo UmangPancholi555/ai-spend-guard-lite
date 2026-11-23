@@ -9,7 +9,7 @@ import { Modal } from '../projects/Modal';
 import CostBreakdownView from './CostBreakdownView';
 
 function Row({ k, children }: { k: string; children: React.ReactNode }) {
-  return (<><dt className="text-slate-500 dark:text-slate-400">{k}</dt><dd className="min-w-0 break-words text-right">{children}</dd></>);
+  return (<><dt className="text-slate-600 dark:text-slate-400">{k}</dt><dd className="min-w-0 break-words text-right">{children}</dd></>);
 }
 
 /** Right-side panel with full detail of one usage event (GET /usage/:id). */
@@ -56,7 +56,7 @@ export default function RequestDrawer({ id, onClose }: { id: string; onClose: ()
 
             <section>
               <h3 className="mb-1 font-semibold">Prompt (not stored)</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Only a hash and length are kept; prompt content is never persisted.</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400">Only a hash and length are kept; prompt content is never persisted.</p>
               <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1">
                 <Row k="SHA-256"><span className="break-all font-mono text-xs">{u.promptHash}</span></Row>
                 <Row k="Length">{fmtInt(u.promptChars)} chars</Row>

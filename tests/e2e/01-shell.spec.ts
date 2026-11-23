@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/test';
 import { NAV, watchConsole } from './support/helpers';
 
 // Runs first, against a brand-new empty DB: also proves every page renders its empty state without errors.

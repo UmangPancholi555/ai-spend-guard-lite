@@ -3,3 +3,24 @@
 @tailwind utilities;
 
 body { @apply antialiased; }
+
+/* leave room for the sticky app + page headers when something is scrolled into view or focused */
+html { scroll-padding-top: 8rem; }
+
+/* visible keyboard focus everywhere (mouse clicks do not trigger :focus-visible) */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+.dark :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible { outline-color: #a5b4fc; }
+/* dialog panels are focused programmatically; they do not need a ring */
+[role='dialog']:focus-visible, main:focus-visible { outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

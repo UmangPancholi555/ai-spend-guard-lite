@@ -6,7 +6,7 @@ import { parse } from '../../utils/http';
 import { sha256 } from '../../utils/ids';
 import { dummyVerify, hashPassword, isValidUsername, normalizeUsername, validatePassword, verifyPassword } from '../../utils/password';
 import type { AuthSessionInfoDto, AuthStatusDto, ManagedUserDto, UserSessionDto } from '../../../../shared/auth';
-import { LOCK_MS, LOCK_THRESHOLD, SESSION_COOKIE, getAuthCore, readCookie } from './core';
+import { AuthCore, DECAY_MS, LOCK_MS, LOCK_THRESHOLD, getAuthCore, globalDelayMs } from './core';
 import { sessionGate } from './middleware';
 import { UserInputError, createFirstAdmin, createUser, toUserDto } from './users';
 
@@ -54,7 +54,7 @@ export function createAuthRouter(deps: AppDeps): Router {
       return res.json({ data: body });
     }
     const setupRequired = (await prisma.user.count()) === 0;
-    const found = await core.resolveSession(readCookie(req, SESSION_COOKIE));
+    const found = await core.resolveSession(core.readToken(req));
     let user;
     if (found) { const u = await prisma.user.findUnique({ where: { id: found.user.id } }); if (u) user = toUserDto(u); }
     const body: AuthStatusDto = { authEnabled: true, setupRequired, authenticated: !!user, ...(user ? { user } : {}) };
@@ -87,7 +87,7 @@ export function createAuthRouter(deps: AppDeps): Router {
   router.post('/auth/login', h(async (req, res) => {
     const body = parse(loginSchema, req.body);
     const username = normalizeUsername(body.username);
-    const ip = req.ip ?? 'unknown';
+    const ip = AuthCore.ipOf(req);
     const gate = core.limiter.begin(ip);
     if (!gate.ok) {
       res.setHeader('Retry-After', String(gate.retryAfterSec));
@@ -97,36 +97,46 @@ export function createAuthRouter(deps: AppDeps): Router {
 
     type Outcome =
       | { kind: 'ok'; userId: string; sessionToken: string; csrfToken: string }
-      | { kind: 'locked'; retryAfterSec: number; userId?: string }
+      | { kind: 'locked'; retryAfterSec: number; userId?: string; scope: 'pair' | 'global' }
       | { kind: 'bad'; userId?: string; nowLocked: boolean };
 
+    const pairKey = AuthCore.pairKey(username, ip);
     const outcome: Outcome = await core.withLock(`login:${username}`, async (): Promise<Outcome> => {
       const now = Date.now();
+      const lockedOut = (ms: number, scope: 'pair' | 'global', userId?: string): Outcome => ({ kind: 'locked', retryAfterSec: Math.ceil(ms / 1000), userId, scope });
+
+      // 1. (username, ip) lock: identical for real and unknown usernames
+      const pairRemaining = core.pairLocks.lockedFor(pairKey, now);
+      if (pairRemaining > 0) return lockedOut(pairRemaining, 'pair');
+
+      // 2. global per-username progressive lock: bypassed only from an IP that has logged in successfully before
       let user = await prisma.user.findUnique({ where: { username } });
       if (user) {
-        if (user.lockedUntil && user.lockedUntil.getTime() > now) {
-          return { kind: 'locked', retryAfterSec: Math.ceil((user.lockedUntil.getTime() - now) / 1000), userId: user.id };
-        }
-        if (user.lockedUntil || user.failedAttempts >= LOCK_THRESHOLD) {
-          user = await prisma.user.update({ where: { id: user.id }, data: { failedAttempts: 0, lockedUntil: null } });
+        const lockActive = !!user.lockedUntil && user.lockedUntil.getTime() > now;
+        if (!lockActive && user.failedAttempts > 0 && now - user.updatedAt.getTime() > DECAY_MS) {
+          user = await prisma.user.update({ where: { id: user.id }, data: { failedAttempts: 0, lockedUntil: null } }); // idle decay
+        } else if (lockActive && !(await core.isKnownIp(user.id, ip))) {
+          return lockedOut(user.lockedUntil!.getTime() - now, 'global', user.id);
         }
       } else {
-        const remaining = core.unknownUsers.lockedFor(username, now);
-        if (remaining > 0) return { kind: 'locked', retryAfterSec: Math.ceil(remaining / 1000) };
+        const remaining = core.unknownGlobal.lockedFor(username, now);
+        if (remaining > 0) return lockedOut(remaining, 'global');
       }
 
       const ok = user ? await verifyPassword(user.passwordHash, body.password) : await dummyVerify(body.password);
       if (!user || !ok) {
-        if (!user) { core.unknownUsers.fail(username, now); return { kind: 'bad', nowLocked: false }; }
+        const nowLocked = core.pairLocks.fail(pairKey, now);
+        if (!user) { core.unknownGlobal.fail(username, now); return { kind: 'bad', nowLocked }; }
         const updated = await prisma.user.update({ where: { id: user.id }, data: { failedAttempts: { increment: 1 } }, select: { failedAttempts: true } });
-        const nowLocked = updated.failedAttempts >= LOCK_THRESHOLD;
-        if (nowLocked) await prisma.user.update({ where: { id: user.id }, data: { lockedUntil: new Date(now + LOCK_MS) } });
+        const delay = globalDelayMs(updated.failedAttempts);
+        if (delay > 0) await prisma.user.update({ where: { id: user.id }, data: { lockedUntil: new Date(now + delay) } });
         return { kind: 'bad', userId: user.id, nowLocked };
       }
 
       // success: reset counters, rotate session (never reuse the presented cookie)
+      core.pairLocks.reset(pairKey);
       await prisma.user.update({ where: { id: user.id }, data: { failedAttempts: 0, lockedUntil: null, lastLoginAt: new Date() } });
-      const old = readCookie(req, SESSION_COOKIE);
+      const old = core.readToken(req);
       if (old) await prisma.session.deleteMany({ where: { tokenHash: sha256(old) } });
       const s = await core.createSession(user.id, req);
       return { kind: 'ok', userId: user.id, sessionToken: s.token, csrfToken: s.csrfToken };
@@ -134,14 +144,14 @@ export function createAuthRouter(deps: AppDeps): Router {
 
     if (outcome.kind === 'locked') {
       res.setHeader('Retry-After', String(Math.max(1, outcome.retryAfterSec)));
-      await core.audit(req, res, 'auth.login.locked', 'Login rejected: account temporarily locked', { userId: outcome.userId ?? null, scope: 'account' }, 'WARN');
+      await core.audit(req, res, 'auth.login.locked', 'Login rejected: account temporarily locked', { userId: outcome.userId ?? null, scope: outcome.scope }, 'WARN');
       throw new AppError(429, 'ACCOUNT_LOCKED', 'Too many failed attempts. Try again later.');
     }
     if (outcome.kind === 'bad') {
-      // Only log the typed username when it is a real account; otherwise a hash (users sometimes paste passwords into the username box).
-      const who = outcome.userId ? { username, userId: outcome.userId } : { usernameHash: sha256(username).slice(0, 10), usernameLength: username.length };
+      // Only log the typed username when it is a real account; for unknown names log just its length (users sometimes paste passwords into the username box - never a hash or any content).
+      const who = outcome.userId ? { username, userId: outcome.userId } : { usernameLength: username.length, looksLikeEmail: username.includes('@') };
       await core.audit(req, res, 'auth.login.failure', 'Login failed', who, 'WARN');
-      if (outcome.nowLocked) await core.audit(req, res, 'auth.login.locked', `Account "${username}" locked after ${LOCK_THRESHOLD} failed attempts`, { username, userId: outcome.userId, scope: 'account', lockMinutes: LOCK_MS / 60_000 }, 'WARN');
+      if (outcome.nowLocked) await core.audit(req, res, 'auth.login.locked', `Sign-in locked from this address after ${LOCK_THRESHOLD} failed attempts`, { ...who, scope: 'pair', lockMinutes: LOCK_MS / 60_000 }, 'WARN');
       throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid username or password');
     }
     core.limiter.refund(ip);
@@ -177,20 +187,23 @@ export function createAuthRouter(deps: AppDeps): Router {
     const problems = validatePassword(body.newPassword, user.username);
     if (problems.length) throw validation('newPassword', problems.join(' '));
     if (body.newPassword === body.currentPassword) throw validation('newPassword', 'New password must differ from the current password.');
+    const pwKey = AuthCore.pairKey(user.username, AuthCore.ipOf(req));
     const revoked = await core.withLock(`login:${user.username}`, async () => {
       const row = await prisma.user.findUnique({ where: { id: user.id } });
       if (!row) throw new AppError(401, 'UNAUTHENTICATED', 'Authentication required');
       const now = Date.now();
-      if (row.lockedUntil && row.lockedUntil.getTime() > now) {
-        res.setHeader('Retry-After', String(Math.ceil((row.lockedUntil.getTime() - now) / 1000)));
+      const remaining = core.passwordLocks.lockedFor(pwKey, now);
+      if (remaining > 0) {
+        res.setHeader('Retry-After', String(Math.ceil(remaining / 1000)));
         throw new AppError(429, 'ACCOUNT_LOCKED', 'Too many failed attempts. Try again later.');
       }
       if (!(await verifyPassword(row.passwordHash, body.currentPassword))) {
-        const upd = await prisma.user.update({ where: { id: row.id }, data: { failedAttempts: { increment: 1 } }, select: { failedAttempts: true } });
-        if (upd.failedAttempts >= LOCK_THRESHOLD) await prisma.user.update({ where: { id: row.id }, data: { lockedUntil: new Date(now + LOCK_MS) } });
+        const locked = core.passwordLocks.fail(pwKey, now);
         await core.audit(req, res, 'auth.login.failure', 'Password change rejected: wrong current password', { username: row.username, userId: row.id, via: 'password-change' }, 'WARN');
+        if (locked) await core.audit(req, res, 'auth.login.locked', 'Password change locked from this address', { username: row.username, userId: row.id, scope: 'pair', via: 'password-change' }, 'WARN');
         throw new AppError(403, 'INVALID_CURRENT_PASSWORD', 'Current password is incorrect');
       }
+      core.passwordLocks.reset(pwKey);
       const passwordHash = await hashPassword(body.newPassword);
       await prisma.user.update({ where: { id: row.id }, data: { passwordHash, failedAttempts: 0, lockedUntil: null } });
       const del = await prisma.session.deleteMany({ where: { userId: row.id, id: { not: session.id } } });
@@ -257,6 +270,9 @@ export function createAuthRouter(deps: AppDeps): Router {
     const { session } = need(req);
     const body = parse(patchUserSchema, req.body);
     const id = String(req.params.id);
+    if (body.password !== undefined && id === admin.id) {
+      throw new AppError(400, 'USE_PASSWORD_ENDPOINT', 'Change your own password with POST /auth/password (it requires your current password)');
+    }
     const { target, changes, revoked } = await core.withLock('users', async () => {
       const target = await prisma.user.findUnique({ where: { id } });
       if (!target) throw new AppError(404, 'NOT_FOUND', 'User not found');
@@ -275,6 +291,7 @@ export function createAuthRouter(deps: AppDeps): Router {
       }
       if (body.unlock) { data.failedAttempts = 0; data.lockedUntil = null; changes.push('unlock'); }
       if (Object.keys(data).length) await prisma.user.update({ where: { id }, data });
+      if (changes.includes('unlock') || changes.includes('password')) core.clearUserLocks(target.username);
       let revoked = 0;
       if (changes.includes('password')) {
         revoked = (await prisma.session.deleteMany({ where: { userId: id, ...(id === admin.id ? { id: { not: session.id } } : {}) } })).count;

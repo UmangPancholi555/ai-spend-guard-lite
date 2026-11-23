@@ -6,16 +6,18 @@ import { Card } from '../ui/Card';
 import { api } from '../../lib/api';
 import { fmtDateTime, fmtUsd } from '../../lib/format';
 import { errMessage } from '../projects/util';
+import { useToast } from '../ui/Toast';
 import { PRICE_RE, costPico, localToIso, pctAbove, picoToUsd, priceToMicro, usdToPico, validateTokens } from './math';
 
-const labelCls = 'mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400';
-const errTxt = 'mt-1 text-xs text-red-600 dark:text-red-400';
+const labelCls = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400';
+const errTxt = 'mt-1 text-xs text-red-700 dark:text-red-400';
 const PROVIDER_RE = /^(\*|[a-z0-9][a-z0-9._-]*)$/;
 const MODEL_RE = /^(\*|[A-Za-z0-9][A-Za-z0-9._:/@+-]*)$/;
 
 interface Preview { before: CostBreakdown; afterTotal: string; afterParts: { input: string; output: string; cached: string }; tokens: { input: number; output: number; cached: number } }
 
 export default function NewVersionTab({ rows, onCreated }: { rows: PricingDto[]; onCreated: () => void }) {
+  const toast = useToast();
   const [provider, setProvider] = useState('');
   const [model, setModel] = useState('');
   const [inP, setInP] = useState('');
@@ -80,7 +82,8 @@ export default function NewVersionTab({ rows, onCreated }: { rows: PricingDto[];
         ...(iso ? { effectiveFrom: iso } : {}), ...(note.trim() ? { note: note.trim() } : {}),
       });
       setCreated(r); setPreview(undefined); onCreated();
-    } catch (err) { setError(errMessage(err)); }
+      toast.success('Pricing version created', `${r.providerKey} / ${r.modelName} is now v${r.version}.`);
+    } catch (err) { setError(errMessage(err)); toast.error('Could not create pricing version', errMessage(err)); }
     finally { setBusy(false); }
   }
 
@@ -121,7 +124,7 @@ export default function NewVersionTab({ rows, onCreated }: { rows: PricingDto[];
               {fieldErr('model')}
             </div>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400" data-testid="pricing-new-target-hint">
+          <p className="text-xs text-slate-600 dark:text-slate-400" data-testid="pricing-new-target-hint">
             {current ? <>Current: v{current.version}, input {fmtUsd(current.inputPerMTok)} / output {fmtUsd(current.outputPerMTok)} / cached {fmtUsd(current.cachedPerMTok)} per MTok. The new version will be v{Math.max(...rows.filter(r => r.providerKey === provider && r.modelName === model).map(r => r.version)) + 1}.</>
               : provider && model ? 'No existing version for this provider/model: this creates v1 (a new model entry).' : 'Pick an existing model to base the new version on, or enter a new model name.'}
             {current && <> <button type="button" className="text-brand-600 underline dark:text-brand-100" onClick={() => { setInP(current.inputPerMTok); setOutP(current.outputPerMTok); setCachedP(current.cachedPerMTok); }} data-testid="pricing-new-copy">Copy current prices</button></>}
@@ -136,7 +139,7 @@ export default function NewVersionTab({ rows, onCreated }: { rows: PricingDto[];
               <label htmlFor="nv-from" className={labelCls}>Effective from (optional, your local time; blank = now)</label>
               <input id="nv-from" type="datetime-local" className={`${inputCls} w-full`} value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)} data-testid="pricing-new-effective" />
               {fieldErr('effectiveFrom')}
-              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Must not be earlier than the latest existing version's date.</p>
+              <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">Must not be earlier than the latest existing version's date.</p>
             </div>
             <div>
               <label htmlFor="nv-note" className={labelCls}>Note (optional, max 500)</label>
@@ -147,7 +150,7 @@ export default function NewVersionTab({ rows, onCreated }: { rows: PricingDto[];
 
           <fieldset className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
             <legend className="px-1 text-sm font-semibold">Impact preview</legend>
-            <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">Cost of a sample workload now (via the calculator API) versus with the prices entered above (exact integer arithmetic in your browser).</p>
+            <p className="mb-3 text-xs text-slate-600 dark:text-slate-400">Cost of a sample workload now (via the calculator API) versus with the prices entered above (exact integer arithmetic in your browser).</p>
             <div className="grid gap-3 sm:grid-cols-3">
               {(['input', 'output', 'cached'] as const).map(k => (
                 <div key={k}>
@@ -161,9 +164,9 @@ export default function NewVersionTab({ rows, onCreated }: { rows: PricingDto[];
             {preview && (
               <div className="mt-3 text-sm" data-testid="pricing-new-preview-result">
                 <dl className="grid max-w-md grid-cols-2 gap-x-4 gap-y-1">
-                  <dt className="text-slate-500 dark:text-slate-400">Before (current pricing)</dt>
+                  <dt className="text-slate-600 dark:text-slate-400">Before (current pricing)</dt>
                   <dd className="text-right font-mono" data-testid="pricing-new-before">{fmtUsd(preview.before.totalCostUsd, 12)}</dd>
-                  <dt className="text-slate-500 dark:text-slate-400">After (new prices)</dt>
+                  <dt className="text-slate-600 dark:text-slate-400">After (new prices)</dt>
                   <dd className="text-right font-mono" data-testid="pricing-new-after">{fmtUsd(preview.afterTotal, 12)}</dd>
                   <dt className="border-t border-slate-200 pt-1 font-semibold dark:border-slate-700">Change</dt>
                   <dd className="border-t border-slate-200 pt-1 text-right font-mono font-semibold dark:border-slate-700" data-testid="pricing-new-delta">
@@ -171,7 +174,7 @@ export default function NewVersionTab({ rows, onCreated }: { rows: PricingDto[];
                   </dd>
                 </dl>
                 {preview.before.costClass === 'ESTIMATED' && <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">"Before" used the fallback row (this model has no catalog entry yet), so it is an ESTIMATED figure. <Badge tone="amber">ESTIMATED</Badge></p>}
-                {effectiveFrom && <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Note: the new version only applies from its effective date; until then "before" pricing stays in force.</p>}
+                {effectiveFrom && <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">Note: the new version only applies from its effective date; until then "before" pricing stays in force.</p>}
               </div>
             )}
           </fieldset>

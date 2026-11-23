@@ -4,6 +4,8 @@ import { api } from '../../lib/api';
 import { fmtPct, fmtUsd } from '../../lib/format';
 import { Badge } from '../ui/Badge';
 import { Button, inputCls } from '../ui/Button';
+import { ConfirmDialog } from '../ui/Modal';
+import { useToast } from '../ui/Toast';
 import UtilizationBar, { utilState } from './UtilizationBar';
 import UtilizationHistoryChart from './UtilizationHistoryChart';
 import { validateLimit, validateName } from './validation';
@@ -18,13 +20,16 @@ export default function BudgetRow({ budget, util, reloadKey, onChanged }: {
   const [showHistory, setShowHistory] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const toast = useToast();
 
   const nameErr = validateName(name);
   const limitErr = validateLimit(limit);
 
-  async function run(fn: () => Promise<unknown>, after?: () => void) {
+  async function run(fn: () => Promise<unknown>, after?: () => void, success?: string) {
     setBusy(true); setError(undefined);
-    try { await fn(); after?.(); onChanged(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+    try { await fn(); after?.(); if (success) toast.success(success); onChanged(); }
+    catch (e) { setError((e as Error).message); toast.error('Budget update failed', (e as Error).message); }
+    finally { setBusy(false); }
   }
 
   const s = util ? utilState(util.percent) : null;
@@ -50,20 +55,11 @@ export default function BudgetRow({ budget, util, reloadKey, onChanged }: {
             {showHistory ? 'Hide history' : 'History'}
           </Button>
           <Button variant="secondary" type="button" disabled={busy} data-testid="budget-toggle-active"
-            onClick={() => run(() => api.patch(`/budgets/${budget.id}`, { active: !budget.active }))}>
+            onClick={() => run(() => api.patch(`/budgets/${budget.id}`, { active: !budget.active }), undefined, budget.active ? `"${budget.name}" deactivated` : `"${budget.name}" activated`)}>
             {budget.active ? 'Deactivate' : 'Activate'}
           </Button>
           <Button variant="secondary" type="button" onClick={() => { setEditing(e => !e); setError(undefined); }} aria-expanded={editing} data-testid="budget-edit">Edit</Button>
-          {!confirmDelete
-            ? <Button variant="ghost" type="button" onClick={() => setConfirmDelete(true)} data-testid="budget-delete" className="text-red-600 dark:text-red-400">Delete</Button>
-            : (
-              <span className="flex items-center gap-2 rounded-md border border-red-300 px-2 py-1 dark:border-red-900" role="alert" data-testid="budget-delete-confirm-box">
-                <span className="text-sm">Delete this budget and its alerts?</span>
-                <Button variant="danger" type="button" disabled={busy} data-testid="budget-delete-confirm"
-                  onClick={() => run(() => api.del(`/budgets/${budget.id}`), () => setConfirmDelete(false))}>Confirm delete</Button>
-                <Button variant="ghost" type="button" onClick={() => setConfirmDelete(false)} data-testid="budget-delete-cancel">Cancel</Button>
-              </span>
-            )}
+          <Button variant="ghost" type="button" onClick={() => setConfirmDelete(true)} data-testid="budget-delete" className="text-red-700 dark:text-red-400">Delete</Button>
         </div>
       </div>
 
@@ -78,30 +74,37 @@ export default function BudgetRow({ budget, util, reloadKey, onChanged }: {
             </div>
           </>
         ) : (
-          <p className="text-sm text-slate-500 dark:text-slate-400">No current-period utilization reported{budget.active ? '' : ' (budget inactive)'}.</p>
+          <p className="text-sm text-slate-600 dark:text-slate-400">No current-period utilization reported{budget.active ? '' : ' (budget inactive)'}.</p>
         )}
       </div>
 
       {editing && (
         <form className="mt-3 grid gap-3 rounded-md bg-slate-50 p-3 dark:bg-slate-950/40 sm:grid-cols-3" noValidate data-testid="budget-edit-form"
-          onSubmit={e => { e.preventDefault(); if (nameErr || limitErr) return; run(() => api.patch(`/budgets/${budget.id}`, { name: name.trim(), limitUsd: limit.trim() }), () => setEditing(false)); }}>
+          onSubmit={e => { e.preventDefault(); if (nameErr || limitErr) return; run(() => api.patch(`/budgets/${budget.id}`, { name: name.trim(), limitUsd: limit.trim() }), () => setEditing(false), 'Budget updated'); }}>
           <label className="flex flex-col gap-1 text-xs font-medium">Name
-            <input className={inputCls} value={name} onChange={e => setName(e.target.value)} data-testid="budget-edit-name" aria-invalid={!!nameErr} />
-            {nameErr && <span className="text-red-600 dark:text-red-400">{nameErr}</span>}
+            <input className={inputCls} value={name} onChange={e => setName(e.target.value)} data-autofocus autoFocus data-testid="budget-edit-name" aria-invalid={!!nameErr} />
+            {nameErr && <span className="text-red-700 dark:text-red-400">{nameErr}</span>}
           </label>
           <label className="flex flex-col gap-1 text-xs font-medium">Limit (USD)
             <input className={inputCls} inputMode="decimal" value={limit} onChange={e => setLimit(e.target.value)} data-testid="budget-edit-limit" aria-invalid={!!limitErr} />
-            {limitErr && <span className="text-red-600 dark:text-red-400" data-testid="budget-edit-limit-error">{limitErr}</span>}
+            {limitErr && <span className="text-red-700 dark:text-red-400" data-testid="budget-edit-limit-error">{limitErr}</span>}
           </label>
           <div className="flex items-end gap-2">
             <Button type="submit" disabled={busy || !!nameErr || !!limitErr} data-testid="budget-edit-save">Save</Button>
             <Button variant="ghost" type="button" onClick={() => setEditing(false)}>Cancel</Button>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 sm:col-span-3">Scope and period are fixed once a budget exists; delete and recreate to change them.</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 sm:col-span-3">Scope and period are fixed once a budget exists; delete and recreate to change them.</p>
         </form>
       )}
 
-      {error && <div role="alert" data-testid="budget-row-error" className="mt-3 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">{error}</div>}
+      {confirmDelete && (
+        <ConfirmDialog title="Delete budget?" confirmLabel="Confirm delete" busy={busy} error={error}
+          message={<>Delete <strong>{budget.name}</strong> and its alert history? This cannot be undone.</>}
+          confirmTestId="budget-delete-confirm" cancelTestId="budget-delete-cancel"
+          onCancel={() => { setConfirmDelete(false); setError(undefined); }}
+          onConfirm={() => run(() => api.del(`/budgets/${budget.id}`), () => setConfirmDelete(false), `Budget "${budget.name}" deleted`)} />
+      )}
+      {error && !confirmDelete && <div role="alert" data-testid="budget-row-error" className="mt-3 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">{error}</div>}
       {showHistory && <div className="mt-4"><UtilizationHistoryChart budgetId={budget.id} reloadKey={reloadKey} /></div>}
     </li>
   );

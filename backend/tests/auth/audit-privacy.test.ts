@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import request from 'supertest';
 import type { TestCtx } from '../helpers/testApp';
@@ -83,11 +84,21 @@ describe('audit trail', () => {
     expect(meta.changes).toEqual(['role']);
   });
 
-  it('does not store a typed unknown username (users paste passwords there) - only a hash prefix', async () => {
+  it('does not store a typed unknown username (users paste passwords there) - only its length, never text or a hash', async () => {
     const fails = await ctx.prisma.activityEvent.findMany({ where: { type: 'auth.login.failure' } });
-    const unknown = fails.map(f => JSON.parse(f.metadata)).find(m => m.usernameHash);
+    const unknown = fails.map(f => JSON.parse(f.metadata)).find(m => m.usernameLength === PASTED_AS_USERNAME.length);
     expect(unknown).toBeTruthy();
     expect(unknown.username).toBeUndefined();
+    expect(unknown.usernameHash).toBeUndefined();
+    expect(unknown.looksLikeEmail).toBe(false);
+    // neither the text nor any sha256 prefix (>= 8 hex chars) of it appears anywhere in the persisted audit trail
+    const lower = PASTED_AS_USERNAME.toLowerCase();
+    const digest = createHash('sha256').update(lower).digest('hex');
+    const dump = (await dumpObservability()) + allLogFiles(ctx.deps.config.logDir);
+    expect(dump.toLowerCase()).not.toContain(lower);
+    for (const n of [8, 10, 16, 32, 64]) expect(dump).not.toContain(digest.slice(0, n));
+    const raw = createHash('sha256').update(PASTED_AS_USERNAME).digest('hex');
+    for (const n of [8, 10, 16]) expect(dump).not.toContain(raw.slice(0, n));
   });
 });
 

@@ -10,6 +10,7 @@ const h = (s: Session) => ({ 'X-CSRF-Token': s.csrf });
 beforeAll(async () => {
   process.env.AUTH_LOGIN_IP_LIMIT_PER_MINUTE = '1000';
   ctx = await newAuthApp();
+  ctx.app.set('trust proxy', true); // lets tests pick the client IP with X-Forwarded-For
   admin = await setupAdmin(ctx);
 });
 afterAll(async () => { delete process.env.AUTH_LOGIN_IP_LIMIT_PER_MINUTE; await closeAuthApp(ctx); });
@@ -63,10 +64,11 @@ describe('admin user management', () => {
 
   it('unlock clears a lock without touching the password; empty patch is a 400', async () => {
     const gina = await createAndLogin(ctx, admin, { username: 'gina', password: 'Indigo-Falcon-Pebble-27' }, 'VIEWER');
-    await ctx.prisma.user.update({ where: { id: gina.userId }, data: { failedAttempts: 5, lockedUntil: new Date(Date.now() + 600_000) } });
-    await request(ctx.app).post('/api/auth/login').send({ username: 'gina', password: 'Indigo-Falcon-Pebble-27' }).expect(429);
+    await ctx.prisma.user.update({ where: { id: gina.userId }, data: { failedAttempts: 12, lockedUntil: new Date(Date.now() + 600_000) } });
+    const fresh = (pw: string) => request(ctx.app).post('/api/auth/login').set('X-Forwarded-For', '192.0.2.77').send({ username: 'gina', password: pw });
+    await fresh('Indigo-Falcon-Pebble-27').expect(429); // global lock applies to addresses she never used
     await admin.agent.patch(`/api/auth/users/${gina.userId}`).set(h(admin)).send({ unlock: true }).expect(200);
-    await request(ctx.app).post('/api/auth/login').send({ username: 'gina', password: 'Indigo-Falcon-Pebble-27' }).expect(200);
+    await fresh('Indigo-Falcon-Pebble-27').expect(200);
     await admin.agent.patch(`/api/auth/users/${gina.userId}`).set(h(admin)).send({}).expect(400);
     await admin.agent.patch('/api/auth/users/nope').set(h(admin)).send({ unlock: true }).expect(404);
   });

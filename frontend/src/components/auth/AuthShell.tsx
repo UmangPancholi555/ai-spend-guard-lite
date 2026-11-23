@@ -9,12 +9,12 @@ export default function AuthShell({ title, subtitle, children }: { title: string
           <div className="grid h-9 w-9 place-items-center rounded-md bg-brand-600 text-base font-bold text-white" aria-hidden="true">S</div>
           <div className="leading-tight">
             <div className="text-base font-semibold">Spend Guard Lite</div>
-            <div className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">Demo / Simulated</div>
+            <div className="text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-400">Demo / Simulated</div>
           </div>
         </div>
         <main className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <h1 className="text-lg font-semibold">{title}</h1>
-          {subtitle && <p className="mb-4 mt-1 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>}
+          {subtitle && <p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">{subtitle}</p>}
           {children}
         </main>
       </div>
@@ -28,7 +28,7 @@ export function FormField({ id, label, hint, children }: { id: string; label: st
     <div className="mb-3">
       <label htmlFor={id} className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">{label}</label>
       {children}
-      {hint && <p id={`${id}-hint`} className="mt-1 text-xs text-slate-500 dark:text-slate-400">{hint}</p>}
+      {hint && <p id={`${id}-hint`} className="mt-1 text-xs text-slate-600 dark:text-slate-400">{hint}</p>}
     </div>
   );
 }

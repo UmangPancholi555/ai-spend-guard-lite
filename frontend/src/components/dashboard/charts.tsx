@@ -15,10 +15,10 @@ function TooltipBox({ title, rows }: { title: string; rows: { label: string; val
       {rows.map(r => (
         <div key={r.label} className="flex items-center gap-2">
           {r.color && <span className="inline-block h-2 w-2 rounded-sm" style={{ background: r.color }} />}
-          <span className="text-slate-500 dark:text-slate-400">{r.label}:</span> <span className="font-medium">{r.value}</span>
+          <span className="text-slate-600 dark:text-slate-400">{r.label}:</span> <span className="font-medium">{r.value}</span>
         </div>
       ))}
-      <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">DEMO / SIMULATED</div>
+      <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-400">DEMO / SIMULATED</div>
     </div>
   );
 }
@@ -57,7 +57,7 @@ export function SuccessFailureChart({ data }: { data: DashboardStats['dailySpend
             const p = active && payload?.[0]?.payload;
             return p ? <TooltipBox title={p.date} rows={[{ label: 'Success', value: fmtInt(p.success), color: COLORS.success }, { label: 'Failure', value: fmtInt(p.failure), color: COLORS.failure }]} /> : null;
           }} />
-          <Legend wrapperStyle={{ fontSize: 12 }} />
+          <Legend wrapperStyle={{ fontSize: 12 }} formatter={(v: string) => <span className="text-slate-700 dark:text-slate-300">{v}</span>} />
           <Bar dataKey="success" name="Success" stackId="a" fill={COLORS.success} isAnimationActive={false} />
           <Bar dataKey="failure" name="Failure" stackId="a" fill={COLORS.failure} isAnimationActive={false} />
         </BarChart>

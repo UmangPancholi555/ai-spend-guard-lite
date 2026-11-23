@@ -6,7 +6,7 @@ import { inputCls } from '../ui/Button';
 import { EmptyState } from '../ui/Table';
 import { fmtDateTime, fmtUsd } from '../../lib/format';
 
-const labelCls = 'mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400';
+const labelCls = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400';
 const isFallback = (p: PricingDto) => p.providerKey === '*' && p.modelName === '*';
 
 interface Group { key: string; provider: string; model: string; versions: PricingDto[]; shown: PricingDto }
@@ -83,7 +83,7 @@ export default function CatalogTab({ rows }: { rows: PricingDto[] }) {
                   {expanded && (
                     <tr><td colSpan={8} className="bg-slate-50 px-3 py-2 dark:bg-slate-900" data-testid="pricing-history">
                       <table className="min-w-full text-xs">
-                        <thead className="text-left text-slate-500 dark:text-slate-400"><tr><th className="py-1 pr-3">Version</th><th className="pr-3">Input</th><th className="pr-3">Output</th><th className="pr-3">Cached</th><th className="pr-3">Effective from</th><th className="pr-3">Status</th><th>Note</th></tr></thead>
+                        <thead className="text-left text-slate-600 dark:text-slate-400"><tr><th className="py-1 pr-3">Version</th><th className="pr-3">Input</th><th className="pr-3">Output</th><th className="pr-3">Cached</th><th className="pr-3">Effective from</th><th className="pr-3">Status</th><th>Note</th></tr></thead>
                         <tbody>
                           {g.versions.map(v => (
                             <tr key={v.id} data-testid="pricing-history-row" className="border-t border-slate-200 dark:border-slate-700">
@@ -107,7 +107,7 @@ export default function CatalogTab({ rows }: { rows: PricingDto[] }) {
         </table>
         {filtered.length === 0 && <EmptyState message="No pricing rows match these filters." />}
       </div>
-      <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Versions are immutable. A usage event keeps the pricing version it was priced with.</p>
+      <p className="mt-3 text-xs text-slate-600 dark:text-slate-400">Versions are immutable. A usage event keeps the pricing version it was priced with.</p>
     </Card>
   );
 }

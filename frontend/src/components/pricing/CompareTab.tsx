@@ -104,7 +104,7 @@ export default function CompareTab({ providers, fields, onFields }: { providers:
                       <Td>{r.cost.pricingVersion === null ? 'fallback' : `v${r.cost.pricingVersion}`}</Td>
                     </>
                   ) : (
-                    <td colSpan={4} className="px-3 py-2 text-red-600 dark:text-red-400"><span role="alert">{r.error}</span></td>
+                    <td colSpan={4} className="px-3 py-2 text-red-700 dark:text-red-400"><span role="alert">{r.error}</span></td>
                   )}
                 </tr>
               ))}

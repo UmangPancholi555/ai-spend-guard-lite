@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/test';
 import { apiCreateProject, apiGet, apiRequest, downloadText, fetchExport, jsonlLines, parseCsv, uniq, watchConsole } from './support/helpers';
 
 let projectName = '';
@@ -114,7 +114,7 @@ test.describe('execution logs', () => {
     await page.getByTestId('log-filter-trace').fill(okTrace);
     await expect(rows.first()).toBeVisible();
     const logs = await apiGet(page.request, `/api/logs?traceId=${okTrace}&pageSize=200`);
-    await expect(rows).toHaveCount(logs.length);
+    await expect(rows).toHaveCount(Math.min(logs.length, 25)); // first page (25 rows per page); the real runtime adds ACTUAL logs per request
 
     await page.getByTestId('log-filter-category').selectOption('MEMORY');
     await expect(rows.filter({ hasNotText: 'memory.injection' })).toHaveCount(0);

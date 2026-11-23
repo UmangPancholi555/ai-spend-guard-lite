@@ -38,8 +38,8 @@ export const cookieHeader = (res: request.Response): string[] => {
   const c = res.headers['set-cookie'];
   return Array.isArray(c) ? c : c ? [c] : [];
 };
-export const sessionCookie = (res: request.Response): string | undefined => cookieHeader(res).find(c => c.startsWith('sg_session='));
-export const cookieValue = (setCookie: string) => setCookie.split(';')[0]!.slice('sg_session='.length);
+export const sessionCookie = (res: request.Response): string | undefined => cookieHeader(res).find(c => /^(__Host-)?sg_session=/.test(c));
+export const cookieValue = (setCookie: string) => setCookie.split(';')[0]!.split('=').slice(1).join('=');
 
 /** Concatenates every JSONL log file of the test app (for leak assertions). */
 export function readAllLogs(ctx: TestCtx): string {

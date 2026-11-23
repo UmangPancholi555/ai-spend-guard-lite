@@ -1,12 +1,13 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/test';
+import { STRONG_PASSWORD, anonymousClient, createUser, errorCode, loginClient, uniqUser } from './support/auth';
 import fs from 'node:fs';
 import path from 'node:path';
-import { LOG_DIR } from './support/env';
+import { ADMIN_PASSWORD, LOG_DIR } from './support/env';
 import { restartServer } from './support/server';
 import { apiBudget, apiCreateProject, apiGet, apiRequest, jsonlLines, picoToUsd, slug, uniq, usdToPico } from './support/helpers';
 
 test.describe('restart persistence (backend process stopped and started on the same DB)', () => {
-  test('projects, usage, budgets, alerts, traces, logs, settings and tasks survive a backend restart; JSONL file is preserved', async ({ page, request }) => {
+  test('projects, usage, budgets, alerts, traces, logs, settings and tasks survive a backend restart; JSONL file is preserved', async ({ page, request, playwright }) => {
     test.setTimeout(120_000);
     // --- build up state through the real API ---
     const p = await apiCreateProject(request, uniq('Persist Proj'));
@@ -47,6 +48,18 @@ test.describe('restart persistence (backend process stopped and started on the s
     // the browser sees an error page/state, not a hang
     await page.goto('/').catch(() => {});
     await restartServer.start();
+
+    // --- sessions are stored in SQLite: the logged-in session (storage state + CSRF token) is still valid, no re-login needed ---
+    const meAfter = await request.get('/api/auth/me');
+    expect(meAfter.status()).toBe(200);
+    expect((await meAfter.json()).data.user.role).toBe('ADMIN');
+    await page.goto('/projects');
+    await expect(page.getByTestId('user-menu')).toBeVisible();
+    await expect(page).not.toHaveURL(/\/login/);
+    // a brand new login works on the restarted server too
+    const fresh = await loginClient(playwright, 'e2e-admin', ADMIN_PASSWORD);
+    expect((await fresh.get('/api/auth/me')).status()).toBe(200);
+    await fresh.dispose();
 
     // --- everything is back ---
     const after = await snap();
@@ -89,7 +102,7 @@ test.describe('restart persistence (backend process stopped and started on the s
     await expect(page.getByTestId('settings-retention-input')).toHaveValue('77');
     await page.goto('/logs');
     await page.getByTestId('log-filter-trace').fill(fail.traceId);
-    await expect(page.getByTestId('log-row')).toHaveCount(after.logs.length);
+    await expect(page.getByTestId('log-row')).toHaveCount(Math.min(after.logs.length, 25)); // first page of 25
 
     // --- the restarted backend keeps working and does not duplicate alerts ---
     const next = await apiRequest(request, p.id, { prompt: 'after restart' });
@@ -101,5 +114,35 @@ test.describe('restart persistence (backend process stopped and started on the s
     // new requests keep appending to the (same) JSONL files after the restart
     const totalAfter = fs.readdirSync(LOG_DIR).filter(f => f.endsWith('.jsonl')).reduce((n, f) => n + fs.statSync(path.join(LOG_DIR, f)).size, 0);
     expect(totalAfter).toBeGreaterThan(Object.values(sizeBefore).reduce((a, b) => a + b, 0));
+  });
+
+  test('failed-login counter and a revoked session also survive a restart (stored in SQLite, not memory)', async ({ request, playwright }) => {
+    test.setTimeout(120_000);
+    const username = uniqUser('rst');
+    const user = await createUser(request, username, STRONG_PASSWORD, 'VIEWER');
+    const anon = await anonymousClient(playwright);
+    for (let i = 0; i < 3; i += 1) expect((await anon.post('/api/auth/login', { username, password: `wrong-${i}-password` })).status()).toBe(401);
+    const live = await loginClient(playwright, username, STRONG_PASSWORD); // success resets the counter ...
+    const revoked = await loginClient(playwright, username, STRONG_PASSWORD);
+    const sessions = await (await revoked.get('/api/auth/sessions')).json();
+    expect((await revoked.del(`/api/auth/sessions/${sessions.data.find((s: any) => s.current).id}`)).status()).toBe(204);
+    for (let i = 0; i < 4; i += 1) expect((await anon.post('/api/auth/login', { username, password: `wrong-b-${i}-password` })).status()).toBe(401);
+
+    const failedAttempts = async () => (await (await request.get('/api/auth/users')).json()).data.find((u: any) => u.id === user.id).failedAttempts;
+    expect(await failedAttempts()).toBe(4);
+
+    await restartServer();
+
+    expect((await live.get('/api/auth/me')).status()).toBe(200); // still logged in
+    expect((await revoked.get('/api/auth/me')).status()).toBe(401); // revoked stays revoked
+    // the per-user failure counter (global ceiling) is stored in SQLite and survived; the per-(user, address) lock is in memory by design
+    expect(await failedAttempts()).toBe(4);
+    expect((await anon.post('/api/auth/login', { username, password: 'wrong-c-password' })).status()).toBe(401);
+    expect(await failedAttempts()).toBe(5);
+    // admin unlock still works afterwards and resets the counter
+    expect((await request.patch(`/api/auth/users/${user.id}`, { data: { unlock: true } })).status()).toBe(200);
+    expect(await failedAttempts()).toBe(0);
+    expect((await anon.post('/api/auth/login', { username, password: STRONG_PASSWORD })).status()).toBe(200);
+    await anon.dispose(); await live.dispose(); await revoked.dispose();
   });
 });

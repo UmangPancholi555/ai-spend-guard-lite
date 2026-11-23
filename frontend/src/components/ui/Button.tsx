@@ -1,4 +1,5 @@
-import type { ButtonHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 type V = 'primary' | 'secondary' | 'danger' | 'ghost';
 const VARIANTS: Record<V, string> = {
   primary: 'bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50',
@@ -9,8 +10,12 @@ const VARIANTS: Record<V, string> = {
 export function Button({ variant = 'primary', className = '', ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: V }) {
   return <button {...rest} className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${VARIANTS[variant]} ${className}`} />;
 }
+/** Router link styled as a button - for next-step CTAs in empty states. */
+export function LinkButton({ to, children, testId }: { to: string; children: ReactNode; testId?: string }) {
+  return <Link to={to} data-testid={testId} className={`rounded-md px-3 py-1.5 text-sm font-medium ${VARIANTS.secondary}`}>{children}</Link>;
+}
 /** Anchor styled as a secondary button, for CSV/JSONL downloads. */
 export function DownloadLink({ href, children }: { href: string; children: React.ReactNode }) {
   return <a href={href} download className={`rounded-md px-3 py-1.5 text-sm font-medium ${VARIANTS.secondary}`}>{children}</a>;
 }
-export const inputCls = 'rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900';
+export const inputCls = 'rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm placeholder:text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:placeholder:text-slate-400';

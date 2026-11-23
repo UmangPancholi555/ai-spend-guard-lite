@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/test';
 import { apiCreateProject, apiGet, downloadText, parseCsv, slug, uniq, usdToPico, watchConsole } from './support/helpers';
 
 test.describe('request simulator -> usage', () => {

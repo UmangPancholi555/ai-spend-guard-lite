@@ -15,9 +15,11 @@ import { UtilizationBar } from '../components/dashboard/UtilizationBar';
 import { ConfirmDialog, Modal } from '../components/projects/Modal';
 import ProjectForm from '../components/projects/ProjectForm';
 import { errMessage } from '../components/projects/util';
+import { useToast } from '../components/ui/Toast';
 import MemoryPanel from '../components/memory/MemoryPanel';
 
 export default function ProjectDetailPage() {
+  const toast = useToast();
   const { id = '' } = useParams();
   const nav = useNavigate();
   const [editing, setEditing] = useState(false);
@@ -39,15 +41,15 @@ export default function ProjectDetailPage() {
   async function toggleArchive() {
     if (!p) return;
     setBusy(true); setActionError(undefined);
-    try { await api.post(`/projects/${p.id}/${p.status === 'ACTIVE' ? 'archive' : 'unarchive'}`); reloadAll(); }
-    catch (e) { setActionError(errMessage(e)); }
+    try { await api.post(`/projects/${p.id}/${p.status === 'ACTIVE' ? 'archive' : 'unarchive'}`); toast.success(p.status === 'ACTIVE' ? `Archived "${p.name}"` : `Restored "${p.name}"`); reloadAll(); }
+    catch (e) { setActionError(errMessage(e)); toast.error('Could not update project', errMessage(e)); }
     finally { setBusy(false); }
   }
 
   async function doDelete() {
     if (!p) return;
     setBusy(true); setActionError(undefined);
-    try { await api.del(`/projects/${p.id}`); nav('/projects'); }
+    try { await api.del(`/projects/${p.id}`); toast.success(`Deleted "${p.name}"`); nav('/projects'); }
     catch (e) { setActionError(errMessage(e)); setBusy(false); }
   }
 
@@ -83,7 +85,7 @@ export default function ProjectDetailPage() {
               <StatCard label="Output tokens" value={fmtInt(p.usage.outputTokens)} testId="project-output-tokens" />
               <StatCard label="Cached tokens" value={fmtInt(p.usage.cachedTokens)} testId="project-cached-tokens" />
             </div>
-            <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+            <p className="mb-4 text-xs text-slate-600 dark:text-slate-400">
               Created {fmtDateTime(p.createdAt)} - updated {fmtDateTime(p.updatedAt)}{p.archivedAt ? ` - archived ${fmtDateTime(p.archivedAt)}` : ''} - last activity {fmtDateTime(p.usage.lastActivityAt)}
             </p>
 
@@ -91,7 +93,7 @@ export default function ProjectDetailPage() {
               <Card title="Budgets" actions={<Link to="/budgets" className="text-sm text-brand-600 hover:underline dark:text-brand-100" data-testid="project-budgets-link">Manage on Budgets page</Link>}>
                 <Async loading={(budgets.loading && !budgets.data) || (util.loading && !util.data)} error={budgets.error}>
                   {(budgets.data ?? []).length === 0 && (util.data ?? []).length === 0 ? (
-                    <p className="text-sm text-slate-500 dark:text-slate-400" data-testid="project-budgets-empty">No budgets for this project.</p>
+                    <p className="text-sm text-slate-600 dark:text-slate-400" data-testid="project-budgets-empty">No budgets for this project.</p>
                   ) : (
                     <>
                       <ul className="divide-y divide-slate-100 dark:divide-slate-800" data-testid="project-budgets">
@@ -110,7 +112,7 @@ export default function ProjectDetailPage() {
               <MemoryPanel projectId={p.id} />
 
               <Card title="Recent usage" actions={<Link to={`/usage?projectId=${encodeURIComponent(p.id)}`} className="text-sm text-brand-600 hover:underline dark:text-brand-100" data-testid="project-usage-link">All usage for this project</Link>}>
-                <Async loading={usage.loading && !usage.data} error={usage.error}>
+                <Async loading={usage.loading && !usage.data} error={usage.error} skeleton="table">
                   <Table head={['Time', 'Provider / model', 'Status', 'Tokens in / out', 'Cost', 'Duration', '']}
                     empty={(usage.data?.data.length ?? 0) === 0 ? <EmptyState message="No usage for this project yet." /> : undefined}>
                     {(usage.data?.data ?? []).map(u => (
@@ -129,15 +131,15 @@ export default function ProjectDetailPage() {
               </Card>
 
               <Card title="Activity history">
-                <Async loading={activity.loading && !activity.data} error={activity.error}>
-                  {(activity.data?.data.length ?? 0) === 0 ? <p className="text-sm text-slate-500 dark:text-slate-400" data-testid="project-activity-empty">No activity recorded for this project.</p> : (
+                <Async loading={activity.loading && !activity.data} error={activity.error} skeleton="table">
+                  {(activity.data?.data.length ?? 0) === 0 ? <p className="text-sm text-slate-600 dark:text-slate-400" data-testid="project-activity-empty">No activity recorded for this project.</p> : (
                     <ul className="divide-y divide-slate-100 dark:divide-slate-800" data-testid="project-activity">
                       {activity.data!.data.map(a => (
                         <li key={a.id} className="flex flex-wrap items-center gap-2 py-2 text-sm" data-testid="project-activity-item">
                           <Badge tone={a.level === 'ERROR' ? 'red' : a.level === 'WARN' ? 'amber' : 'slate'}>{a.level}</Badge>
-                          <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{a.type}</span>
+                          <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{a.type}</span>
                           <span className="min-w-0 break-words">{a.message}</span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">{fmtDateTime(a.createdAt)}</span>
+                          <span className="text-xs text-slate-600 dark:text-slate-400">{fmtDateTime(a.createdAt)}</span>
                           <SourceBadge source={a.source} />
                           {a.traceId && <Link to={`/traces/${a.traceId}`} className="text-xs text-brand-600 underline dark:text-brand-100">trace</Link>}
                         </li>
@@ -153,7 +155,7 @@ export default function ProjectDetailPage() {
               <Modal title={`Edit ${p.name}`} onClose={() => setEditing(false)} testId="project-edit-dialog">
                 <ProjectForm mode="edit" initial={p} onCancel={() => setEditing(false)} onSubmit={async v => {
                   await api.patch(`/projects/${p.id}`, { name: v.name, description: v.description || null, isTest: v.isTest });
-                  setEditing(false); reloadAll();
+                  setEditing(false); toast.success(`Saved "${v.name}"`); reloadAll();
                 }} />
               </Modal>
             )}

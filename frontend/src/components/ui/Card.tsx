@@ -15,9 +15,9 @@ export function Card({ title, actions, children, className = '' }: { title?: str
 export function StatCard({ label, value, hint, testId }: { label: string; value: ReactNode; hint?: string; testId?: string }) {
   return (
     <Card>
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+      <div className="text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">{label}</div>
       <div className="mt-1 text-2xl font-semibold" data-testid={testId}>{value}</div>
-      {hint && <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{hint}</div>}
+      {hint && <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">{hint}</div>}
     </Card>
   );
 }

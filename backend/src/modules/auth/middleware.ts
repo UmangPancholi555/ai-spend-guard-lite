@@ -1,7 +1,7 @@
 import type { Request, RequestHandler } from 'express';
 import type { AppDeps } from '../../contracts/services';
 import { AppError } from '../../utils/errors';
-import { csrfMatches, getAuthCore, readCookie, SESSION_COOKIE } from './core';
+import { csrfMatches, getAuthCore } from './core';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -34,7 +34,7 @@ export function sessionGate(deps: AppDeps): RequestHandler {
   const core = getAuthCore(deps);
   return (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
-    const token = readCookie(req, SESSION_COOKIE);
+    const token = core.readToken(req);
     core.resolveSession(token).then(found => {
       if (!found) {
         if (token) core.clearCookie(res);

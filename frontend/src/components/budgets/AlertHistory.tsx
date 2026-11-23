@@ -13,7 +13,7 @@ export function ThresholdChips({ active }: { active: number }) {
     <span className="inline-flex gap-1" data-testid="threshold-chips">
       {THRESHOLDS.map(t => (
         <span key={t} data-testid="threshold-chip" data-threshold={t} data-active={t === active}
-          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${t === active ? thresholdTone(t) : 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'}`}>
+          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${t === active ? thresholdTone(t) : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
           {t}%
         </span>
       ))}

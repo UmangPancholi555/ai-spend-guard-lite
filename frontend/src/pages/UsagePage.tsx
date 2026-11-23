@@ -7,6 +7,7 @@ import { Badge, StatusBadge } from '../components/ui/Badge';
 import { Button, DownloadLink, inputCls } from '../components/ui/Button';
 import { Async } from '../components/ui/State';
 import { EmptyState, PaginationBar, Table, Td } from '../components/ui/Table';
+import { LinkButton } from '../components/ui/Button';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useApi';
 import { fmtDateTime, fmtInt, fmtMs, fmtUsd } from '../lib/format';
@@ -15,7 +16,7 @@ import RequestDrawer from '../components/usage/RequestDrawer';
 
 const FILTER_KEYS = ['search', 'provider', 'model', 'projectId', 'status', 'from', 'to', 'sort', 'order'] as const;
 type FilterKey = typeof FILTER_KEYS[number];
-const labelCls = 'mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400';
+const labelCls = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400';
 
 const dayStart = (d: string) => (d ? `${d}T00:00:00.000Z` : undefined);
 const dayEnd = (d: string) => (d ? `${d}T23:59:59.999Z` : undefined);
@@ -136,13 +137,13 @@ export default function UsagePage() {
             <Button variant="secondary" disabled={!hasFilters && !searchInput} onClick={() => { setSearchInput(''); setSp(new URLSearchParams(), { replace: true }); }} data-testid="usage-clear">Clear filters</Button>
           </div>
         </div>
-        {filters.error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">Could not load filter options: {filters.error.message}</p>}
+        {filters.error && <p className="mt-2 text-xs text-red-700 dark:text-red-400">Could not load filter options: {filters.error.message}</p>}
       </Card>
 
-      <Async loading={list.loading && !list.data} error={list.error}>
+      <Async loading={list.loading && !list.data} error={list.error} skeleton="table">
         <Table
           head={['Time', 'Project', 'Provider / model', 'Status', 'In', 'Out', 'Cached', 'Cost', 'Class', 'Duration']}
-          empty={rows.length === 0 ? <EmptyState message={hasFilters ? 'No usage events match these filters.' : 'No usage recorded yet. Send a request from the Request Simulator or generate demo data on the Dashboard.'} /> : undefined}
+          empty={rows.length === 0 ? <EmptyState message={hasFilters ? 'No usage events match these filters.' : 'No usage recorded yet. Send a request from the Request Simulator or generate demo data on the Dashboard.'} action={!hasFilters && <LinkButton to="/simulator" testId="usage-empty-cta">Open Request Simulator</LinkButton>} /> : undefined}
         >
           {rows.map(u => (
             <tr key={u.id} tabIndex={0}

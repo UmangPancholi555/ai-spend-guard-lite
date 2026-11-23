@@ -25,7 +25,10 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       sessionTtlHours: Number(process.env.SESSION_TTL_HOURS ?? 12),
       cookieSecure: (process.env.COOKIE_SECURE ?? 'false').toLowerCase() === 'true',
     },
-    security: { rateLimitPerMinute: Number(process.env.RATE_LIMIT_PER_MINUTE ?? 600) },
+    security: {
+      rateLimitPerMinute: Number(process.env.RATE_LIMIT_PER_MINUTE ?? 600),
+      allowedHosts: (process.env.ALLOWED_HOSTS ?? '').split(',').map(h => h.trim().toLowerCase()).filter(Boolean),
+    },
     ...overrides,
   };
 }

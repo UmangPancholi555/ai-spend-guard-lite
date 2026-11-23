@@ -29,9 +29,9 @@ export default function CostResult({ cost, tokens, label, version }: { cost: Cos
           {COST_CLASS_EXPLANATION[cost.costClass]}{cost.unknownModel ? ' (This model is unknown to the catalog.)' : ''}
         </p>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:max-w-md">
-          <dt className="text-slate-500 dark:text-slate-400">Input cost</dt><dd className="text-right font-mono" data-testid="pricing-input-cost">{money(cost.inputCostUsd)}</dd>
-          <dt className="text-slate-500 dark:text-slate-400">Output cost</dt><dd className="text-right font-mono" data-testid="pricing-output-cost">{money(cost.outputCostUsd)}</dd>
-          <dt className="text-slate-500 dark:text-slate-400">Cached cost</dt><dd className="text-right font-mono" data-testid="pricing-cached-cost">{money(cost.cachedCostUsd)}</dd>
+          <dt className="text-slate-600 dark:text-slate-400">Input cost</dt><dd className="text-right font-mono" data-testid="pricing-input-cost">{money(cost.inputCostUsd)}</dd>
+          <dt className="text-slate-600 dark:text-slate-400">Output cost</dt><dd className="text-right font-mono" data-testid="pricing-output-cost">{money(cost.outputCostUsd)}</dd>
+          <dt className="text-slate-600 dark:text-slate-400">Cached cost</dt><dd className="text-right font-mono" data-testid="pricing-cached-cost">{money(cost.cachedCostUsd)}</dd>
           <dt className="border-t border-slate-200 pt-1 font-semibold dark:border-slate-700">Total</dt>
           <dd className="border-t border-slate-200 pt-1 text-right font-mono font-semibold dark:border-slate-700" data-testid="pricing-total-cost">{money(cost.totalCostUsd)}</dd>
         </dl>
@@ -48,13 +48,13 @@ export default function CostResult({ cost, tokens, label, version }: { cost: Cos
           <ul className="space-y-1 font-mono text-xs" data-testid="pricing-formulas">
             {lines.map(l => (
               <li key={l.k} data-testid={`pricing-formula-${l.k}`}>
-                <span className="font-sans text-slate-500 dark:text-slate-400">{l.name}: </span>
+                <span className="font-sans text-slate-600 dark:text-slate-400">{l.name}: </span>
                 {fmtInt(l.tokens)} × {fmtUsd(l.rate)}/MTok ÷ 1,000,000 = {money(l.cost)}
               </li>
             ))}
           </ul>
         </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400" data-testid="pricing-convention">{CONVENTION_NOTE}</p>
+        <p className="text-xs text-slate-600 dark:text-slate-400" data-testid="pricing-convention">{CONVENTION_NOTE}</p>
       </div>
     </Card>
   );

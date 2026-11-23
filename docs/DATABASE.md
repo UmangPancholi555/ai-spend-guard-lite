@@ -1,6 +1,6 @@
 # Database
 
-AI Spend Guard Lite uses **SQLite** through **Prisma 6** (`prisma/schema.prisma`). The single migration set lives in `prisma/migrations/`.
+AI Spend Guard Lite uses **SQLite** through **Prisma 6** (`prisma/schema.prisma`). The migration set lives in `prisma/migrations/` (2 migrations, 20 models).
 
 ## 1. Conventions
 
@@ -21,6 +21,8 @@ PricingConfig 1---* UsageEvent *---1 Project 1---* Budget 1---* BudgetAlert
                                       |  *
                           ActivityEvent (SetNull)     Trace (SetNull) 1---* Span (Cascade)
 
+User 1---* Session (Cascade)                     ProjectMemoryItem.projectId -> Project (Cascade; migration memory_cascade)
+
 Standalone (no FKs): ExecutionLog, MemoryEvent, BusEvent, ToolCallEvent, ContextEvent, BackgroundTask, AppSetting
 ```
 
@@ -34,8 +36,10 @@ Standalone (no FKs): ExecutionLog, MemoryEvent, BusEvent, ToolCallEvent, Context
 | `ActivityEvent.projectId -> Project` (nullable) | SET NULL |
 | `Trace.projectId -> Project` (nullable) | SET NULL |
 | `Span.traceId -> Trace.traceId` | CASCADE |
+| `Session.userId -> User` | CASCADE |
 
 Deleting a (test) project therefore removes its usage events, budgets and their alerts; its activity events and traces survive with `projectId = NULL`.
+`ProjectMemoryItem.projectId` has a foreign key with `ON DELETE CASCADE` (migration `memory_cascade`): `DELETE /projects/:id` removes the project's memory rows.
 
 ## 3. Models
 
@@ -342,8 +346,8 @@ Indexes / uniques:
 | `phase` | String | required | STARTED / COMPLETED / FAILED |
 | `status` | String | required | STARTED / SUCCESS / FAILURE |
 | `source` | String | required | ACTUAL / SIMULATED |
-| `memorySource` | String | required | e.g. "session-memory" (label only) |
-| `category` | String | required | e.g. "user-preferences" |
+| `memorySource` | String | required | label; the real runtime writes `project-memory-store` |
+| `category` | String | required | the real runtime writes the sorted, comma-joined memory categories of the injected items (for example `facts,instructions`); `unknown` on a failed lookup |
 | `itemCount` | Int | required |  |
 | `estimatedTokens` | Int | required |  |
 | `payloadBytes` | Int | required |  |
@@ -479,6 +483,64 @@ Indexes / uniques:
 | `updatedAt` | DateTime | required, auto-updated |  |
 
 
+### User
+
+Added by migration `20261123122336_auth_and_memory`. Login accounts. Never exposed raw: DTOs omit `passwordHash`.
+
+| Column | Type | Constraints / default | Notes |
+|---|---|---|---|
+| `id` | String | required, PK, default cuid() |  |
+| `username` | String | required, unique | stored lower-case; 3-32 chars of `a-z 0-9 . _ -` |
+| `passwordHash` | String | required | `scrypt$N$r$p$saltB64$hashB64` (N=2^15, r=8, p=1, 16-byte salt, 64-byte key); never the password |
+| `role` | String | required, default "ADMIN" | ADMIN / VIEWER |
+| `failedAttempts` | Int | required, default 0 | consecutive failures; 5 triggers a lock |
+| `lockedUntil` | DateTime | nullable | set for 15 minutes on lockout |
+| `lastLoginAt` | DateTime | nullable |  |
+| `createdAt` | DateTime | required, default now() |  |
+| `updatedAt` | DateTime | required, auto-updated |  |
+
+Indexes / uniques: `unique(username)`.
+
+### Session
+
+Added by `20261123122336_auth_and_memory`. One row per logged-in browser / client. No raw token is stored.
+
+| Column | Type | Constraints / default | Notes |
+|---|---|---|---|
+| `id` | String | required, PK, default cuid() | shown in `GET /auth/sessions`; not the cookie value |
+| `userId` | String | required, FK -> `User.id` ON DELETE CASCADE |  |
+| `tokenHash` | String | required, unique | sha256 of the 43-char cookie token |
+| `csrfHash` | String | required | sha256 of the CSRF token (HMAC of the cookie token) |
+| `createdAt` | DateTime | required, default now() |  |
+| `lastSeenAt` | DateTime | required, default now() | refreshed at most every 60 s; idle timeout is 30 min |
+| `expiresAt` | DateTime | required | absolute expiry (`SESSION_TTL_HOURS`) |
+| `userAgent` | String | nullable | bounded client string |
+| `ip` | String | nullable | client address as seen by Express |
+
+Indexes / uniques: `unique(tokenHash)`, `index(userId)`, `index(expiresAt)`.
+Dead (expired or idle) sessions are purged lazily when a new session is created; at most 20 sessions per user are kept (oldest pruned).
+
+### ProjectMemoryItem
+
+Added by `20261123122336_auth_and_memory`. The **real** runtime memory store: enabled items are injected into the context of mock provider requests.
+Unlike every other table, `content` **is user data** (text typed in the UI / API). It is stored in plain text, returned only by the memory API,
+and never copied into logs, spans, events, activity or exports (only ids, category, sizes, token estimates and an 8-char hash prefix are recorded).
+
+| Column | Type | Constraints / default | Notes |
+|---|---|---|---|
+| `id` | String | required, PK, default cuid() |  |
+| `projectId` | String | required | FK -> Project, ON DELETE CASCADE; the memory service also checks the project exists (404) |
+| `title` | String | required | 1..120 chars |
+| `category` | String | required | `instructions` / `preferences` / `facts` / `other` (the schema comment lists only three; the API accepts these four) |
+| `content` | String | required | 1..8000 chars |
+| `enabled` | Boolean | required, default true | only enabled items are injected |
+| `sizeBytes` | Int | required | UTF-8 bytes of `content` |
+| `estimatedTokens` | Int | required | `ceil(content chars / 4)`, min 1 |
+| `createdAt` | DateTime | required, default now() | injection order: oldest first |
+| `updatedAt` | DateTime | required, auto-updated |  |
+
+Indexes / uniques: `index(projectId, enabled)`. Limit: 200 items per project (409 above that).
+
 ## 4. Notes on integrity
 
 - **No FK** on `ExecutionLog`, `MemoryEvent`, `BusEvent`, `ToolCallEvent`, `ContextEvent` (`traceId`, `spanId`, `projectId`): these are append-only logs correlated by id, and the retention sweep deletes them (and traces) independently.
@@ -486,6 +548,9 @@ Indexes / uniques:
 - **Alert uniqueness** is enforced by the DB: `BudgetAlert unique(budgetId, periodStart, threshold)`.
 - **Pricing uniqueness**: `PricingConfig unique(providerKey, modelName, version)`. The fallback row is `providerKey = "*"`, `modelName = "*"`.
 - **Request id uniqueness**: `UsageEvent.requestId` is unique.
+- **Auth uniqueness**: `User.username` and `Session.tokenHash` are unique. The first administrator is inserted with an atomic `INSERT ... SELECT ... WHERE NOT EXISTS (SELECT 1 FROM "User")`, so concurrent first-run setups cannot create two admins. "Last admin" protection is application code under an in-process lock.
+- **Memory rows**: `ProjectMemoryItem.projectId` is a foreign key with cascade delete, so deleting a (test) project also deletes its memory items.
+- **Retention never touches** `User`, `Session`, `ProjectMemoryItem`.
 
 ## 5. Seeded catalog
 
@@ -503,7 +568,7 @@ Indexes / uniques:
 | Create a new migration after editing `schema.prisma` (development) | `npm run db:migrate:dev -- --name <what_changed>` (= `prisma migrate dev`), then commit the new folder in `prisma/migrations/` |
 | Regenerate the Prisma client | `npm run db:generate` |
 
-The migration history currently has one migration, `20261123103049_init`. `prisma/migrations/migration_lock.toml` pins the provider to `sqlite`.
+The migration history has two migrations: `20261123103049_init` (17 models) and `20261123122336_auth_and_memory` (adds `User`, `Session`, `ProjectMemoryItem`). `prisma/migrations/migration_lock.toml` pins the provider to `sqlite`.
 Tests create a fresh temporary database per test app and apply the same migrations with `prisma migrate deploy` (see [TESTING.md](TESTING.md)).
 
 ## 7. File locations
@@ -512,6 +577,7 @@ Tests create a fresh temporary database per test app and apply the same migratio
 |---|---|---|
 | SQLite database | `prisma/spendguard.db` (the `file:./spendguard.db` URL is relative to `prisma/schema.prisma`); SQLite may also create `spendguard.db-journal` next to it while writing | `DATABASE_URL` in `.env` |
 | JSONL execution logs | `data/logs/execution-YYYY-MM-DD.jsonl` (repo root) | `LOG_DIR` |
+| First admin / sessions | in the same SQLite file (`User`, `Session`) | `ADMIN_USERNAME` / `ADMIN_PASSWORD`, `/setup`, `npm run user:create` |
 | Test databases | `<os tmpdir>/spendguard-test-*/test.db` and `.../logs/` | `createTestApp()` |
 
 `*.db`, `*.db-journal`, `data/` (except `.gitkeep`) are git-ignored.
@@ -531,14 +597,17 @@ Tests create a fresh temporary database per test app and apply the same migratio
 
 ## 9. Retention
 
-Retention is **manual** (no scheduler): `POST /api/logging/retention/run` or Settings -> "Run retention sweep now", using the `retentionDays` setting (default 30, `0` = keep forever).
+Retention runs **automatically and on demand**, using the `retentionDays` setting (default 30, `0` = keep forever):
+
+- **Scheduler:** `startRetentionScheduler` (`modules/logging/scheduler.ts`, started by `server.ts`, stopped on shutdown) runs a sweep 60 s after start and then every 6 h, counted from the end of the previous run, so runs never overlap. The timer is `unref`'d. A run is skipped (no task row) when `retentionDays = 0`; failures are logged to the console and scheduling continues. Each run is a `RETENTION_SWEEP` task with `result.trigger = "scheduled"`.
+- **Manual:** `POST /api/logging/retention/run` or Settings -> "Run retention sweep now" (`result.trigger = "manual"`; with `retentionDays = 0` it returns `skipped: true`). Manual sweeps need the `ADMIN` role.
 
 | Table | Swept? | Cut-off column |
 |---|---|---|
 | `ExecutionLog` | yes | `ts` |
 | `MemoryEvent`, `BusEvent`, `ToolCallEvent`, `ContextEvent` | yes | `createdAt` |
 | `Trace` (+ `Span` via cascade) | yes, only finished traces (`status` OK or ERROR) | `startedAt` |
-| JSONL files | yes, files whose whole UTC day is before the cut-off | filename date |
-| `UsageEvent`, `ActivityEvent`, `BudgetAlert`, `BackgroundTask`, `Project`, `Budget`, `PricingConfig`, `AppSetting` | **no** (spend history is never deleted by retention) | - |
+| JSONL files (`execution-YYYY-MM-DD.jsonl` and size-rollover `execution-YYYY-MM-DD.N.jsonl`) | yes, files whose whole UTC day is before the cut-off | filename date |
+| `UsageEvent`, `ActivityEvent`, `BudgetAlert`, `BackgroundTask`, `Project`, `Budget`, `PricingConfig`, `AppSetting`, `User`, `Session`, `ProjectMemoryItem` | **no** (spend history is never deleted by retention) | - |
 
 The sweep itself is recorded as a `RETENTION_SWEEP` row in `BackgroundTask` with per-table delete counts in `result`.

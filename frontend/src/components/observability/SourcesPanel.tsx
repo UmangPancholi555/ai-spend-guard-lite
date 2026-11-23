@@ -16,11 +16,11 @@ export default function SourcesPanel() {
   const { data, error, loading } = useAsync(() => api.get<InstrumentationSourceDto[]>('/observability/sources'), []);
   return (
     <Card title="Instrumentation sources">
-      <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+      <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
         Where each kind of event comes from. <strong>CONNECTED</strong> means real instrumented code; <strong>SIMULATED_ONLY</strong> means only the demo generator produces it;
         <strong> UNAVAILABLE</strong> means there is no source at all. Simulated events are never counted or labelled as actual.
       </p>
-      <Async loading={loading && !data} error={error}>
+      <Async loading={loading && !data} error={error} skeleton="cards">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" data-testid="sources-panel">
           {(data ?? []).map(s => {
             const st = STATUS[s.status];
@@ -33,11 +33,11 @@ export default function SourcesPanel() {
                 </div>
                 <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{st.text}</p>
                 <dl className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                  <div><dt className="text-slate-500 dark:text-slate-400">Actual</dt><dd className="font-semibold" data-testid={`source-actual-${s.kind}`}>{fmtInt(s.actualEvents)}</dd></div>
-                  <div><dt className="text-slate-500 dark:text-slate-400">Simulated</dt><dd className="font-semibold" data-testid={`source-simulated-${s.kind}`}>{fmtInt(s.simulatedEvents)}</dd></div>
-                  <div><dt className="text-slate-500 dark:text-slate-400">Last event</dt><dd>{fmtDateTime(s.lastEventAt)}</dd></div>
+                  <div><dt className="text-slate-600 dark:text-slate-400">Actual</dt><dd className="font-semibold" data-testid={`source-actual-${s.kind}`}>{fmtInt(s.actualEvents)}</dd></div>
+                  <div><dt className="text-slate-600 dark:text-slate-400">Simulated</dt><dd className="font-semibold" data-testid={`source-simulated-${s.kind}`}>{fmtInt(s.simulatedEvents)}</dd></div>
+                  <div><dt className="text-slate-600 dark:text-slate-400">Last event</dt><dd>{fmtDateTime(s.lastEventAt)}</dd></div>
                 </dl>
-                {s.notes && <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{s.notes}</p>}
+                {s.notes && <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">{s.notes}</p>}
               </div>
             );
           })}

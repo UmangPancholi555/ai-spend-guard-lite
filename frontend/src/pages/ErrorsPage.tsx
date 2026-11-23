@@ -3,6 +3,7 @@ import type { ExecutionLogDto } from '@shared/types';
 import PageHeader from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
+import { LinkButton } from '../components/ui/Button';
 import { Badge, SourceBadge } from '../components/ui/Badge';
 import ErrorGroupsChart from '../components/observability/ErrorGroupsChart';
 import {
@@ -31,7 +32,7 @@ export default function ErrorsPage() {
         <TextFilter label="To" type="date" value={f.filters.to} onChange={v => f.setFilter('to', v)} testId="error-filter-to" />
       </FilterBar>
       <Card>
-        <PagedTable state={state} testId="error-table" onPage={f.setPage} emptyMessage="No errors match these filters."
+        <PagedTable state={state} testId="error-table" onPage={f.setPage} emptyMessage="No errors match these filters." emptyAction={!f.dirty && <LinkButton to="/simulator" testId="errors-empty-cta">Simulate a failing request</LinkButton>}
           head={['Details', 'Time', 'Category', 'Operation', 'Message', 'Source', 'Duration', 'Trace']}
           row={e => (
             <ExpandableRow key={e.id} testId="error-row" tone="error"
@@ -53,9 +54,9 @@ export default function ErrorsPage() {
                     <KeyVal k="Request id"><span className="font-mono text-xs">{e.requestId ?? '-'}</span></KeyVal>
                     <KeyVal k="Trace"><TraceLink traceId={e.traceId} /></KeyVal>
                   </dl>
-                  {e.stack ? <StackBlock stack={e.stack} testId="error-stack" /> : <p className="text-xs text-slate-500 dark:text-slate-400">No stack trace was captured for this error.</p>}
+                  {e.stack ? <StackBlock stack={e.stack} testId="error-stack" /> : <p className="text-xs text-slate-600 dark:text-slate-400">No stack trace was captured for this error.</p>}
                   <div>
-                    <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Attributes</div>
+                    <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">Attributes</div>
                     <JsonBlock data={e.attributes} testId="error-attributes" />
                   </div>
                 </div>

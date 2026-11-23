@@ -46,3 +46,25 @@ export async function createUser(prisma: PrismaClient, rawUsername: string, pass
     throw new Error('user create failed'); // never propagate prisma errors: they can echo the hash in their message
   }
 }
+
+/** Offline/CLI helpers (also usable from tests). They never throw prisma errors upward (those can echo hashes). */
+export async function unlockUser(prisma: PrismaClient, rawUsername: string): Promise<AuthUserDto> {
+  const username = normalizeUsername(rawUsername);
+  const u = await prisma.user.findUnique({ where: { username } });
+  if (!u) throw new UserInputError('No such user.');
+  const upd = await prisma.user.update({ where: { id: u.id }, data: { failedAttempts: 0, lockedUntil: null } });
+  return toUserDto(upd);
+}
+
+/** Policy-checked password reset; revokes every session of the user and clears the lock. */
+export async function resetUserPassword(prisma: PrismaClient, rawUsername: string, newPassword: string): Promise<AuthUserDto> {
+  const username = normalizeUsername(rawUsername);
+  const u = await prisma.user.findUnique({ where: { username } });
+  if (!u) throw new UserInputError('No such user.');
+  const problems = validatePassword(newPassword, username);
+  if (problems.length) throw new UserInputError(problems.join(' '));
+  const passwordHash = await hashPassword(newPassword);
+  const upd = await prisma.user.update({ where: { id: u.id }, data: { passwordHash, failedAttempts: 0, lockedUntil: null } });
+  await prisma.session.deleteMany({ where: { userId: u.id } });
+  return toUserDto(upd);
+}

@@ -29,7 +29,7 @@ export function tip(render: (point: any, label?: string) => ReactNode) {
 
 export function ChartBox({ children, height = 220, label }: { children: ReactNode; height?: number; label: string }) {
   return (
-    <div className="text-slate-500 dark:text-slate-400" style={{ height }} role="img" aria-label={label}>
+    <div className="text-slate-600 dark:text-slate-400" style={{ height }} role="img" aria-label={label}>
       {children}
     </div>
   );

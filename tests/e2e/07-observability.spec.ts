@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/test';
 import { apiCreateProject, apiGet, apiRequest, uniq, watchConsole } from './support/helpers';
 
 const iso = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString();
@@ -52,47 +52,50 @@ test.describe('observability', () => {
     expect(errors, errors.join('\n')).toEqual([]);
   });
 
-  test('instrumentation sources panel: honest statuses - memory/tool/context are never CONNECTED', async ({ page, request }) => {
+  test('instrumentation sources panel: CONNECTED = a real component is registered; ACTUAL vs SIMULATED counts are split; the demo simulator is SIMULATED_ONLY', async ({ page, request }) => {
     await page.goto('/observability');
     const sources = await apiGet(request, '/api/observability/sources');
     const panel = page.getByTestId('sources-panel');
     await expect(panel).toBeVisible();
     await expect(page.getByTestId('source-card')).toHaveCount(sources.length);
 
-    for (const kind of ['memory', 'tool', 'context']) {
-      const card = page.locator(`[data-testid="source-card"][data-kind="${kind}"]`);
-      await expect(card).toHaveAttribute('data-status', 'SIMULATED_ONLY');
-      await expect(page.getByTestId(`source-status-${kind}`)).toHaveText('SIMULATED_ONLY');
-      await expect(page.getByTestId(`source-status-${kind}`)).not.toHaveText('CONNECTED');
-      await expect(page.getByTestId(`source-actual-${kind}`)).toHaveText('0');
-      const sim = sources.find((s: any) => s.kind === kind).simulatedEvents;
-      expect(sim).toBeGreaterThan(0);
-      await expect(page.getByTestId(`source-simulated-${kind}`)).toHaveText(sim.toLocaleString('en-US'));
-      await expect(card).toContainText('DEMO / SIMULATED generator');
+    // real runtime components (request lifecycle, error handling, memory, tools, context, event bus) are CONNECTED
+    for (const kind of ['request', 'error', 'memory', 'tool', 'context', 'bus']) {
+      await expect(page.locator(`[data-testid="source-card"][data-kind="${kind}"]`), kind).toHaveAttribute('data-status', 'CONNECTED');
+      await expect(page.getByTestId(`source-status-${kind}`)).toHaveText('CONNECTED');
+      const s = sources.find((x: any) => x.kind === kind);
+      await expect(page.getByTestId(`source-actual-${kind}`)).toHaveText(s.actualEvents.toLocaleString('en-US'));
+      await expect(page.getByTestId(`source-simulated-${kind}`)).toHaveText(s.simulatedEvents.toLocaleString('en-US'));
     }
-    // the real parts are CONNECTED and show ACTUAL events
-    for (const kind of ['request', 'error']) {
-      await expect(page.locator(`[data-testid="source-card"][data-kind="${kind}"]`)).toHaveAttribute('data-status', 'CONNECTED');
+    // the demo seed produced SIMULATED memory/tool/context events: they are counted, but never as actual
+    for (const kind of ['memory', 'tool', 'context']) {
+      expect(sources.find((s: any) => s.kind === kind).simulatedEvents, kind).toBeGreaterThan(0);
     }
     await expect(page.getByTestId('source-actual-request')).not.toHaveText('0');
-    // bus status follows its ACTUAL count (never CONNECTED without actual events)
-    const bus = sources.find((s: any) => s.kind === 'bus');
-    await expect(page.getByTestId('source-status-bus')).toHaveText(bus.actualEvents > 0 ? 'CONNECTED' : 'SIMULATED_ONLY');
+    // the DEMO simulator is its own entry: always SIMULATED_ONLY, never any ACTUAL events
+    const sim = page.locator('[data-testid="source-card"][data-kind="simulator"]');
+    await expect(sim).toHaveAttribute('data-status', 'SIMULATED_ONLY');
+    await expect(page.getByTestId('source-status-simulator')).toHaveText('SIMULATED_ONLY');
+    await expect(page.getByTestId('source-actual-simulator')).toHaveText('0');
+    const simApi = sources.find((s: any) => s.kind === 'simulator');
+    expect(simApi.status).toBe('SIMULATED_ONLY');
+    expect(simApi.actualEvents).toBe(0);
+    await expect(page.getByTestId('source-simulated-simulator')).toHaveText(simApi.simulatedEvents.toLocaleString('en-US'));
+    await expect(sim).toContainText('DEMO / SIMULATED generator');
     // each status is explained to the user
-    await expect(panel).toContainText('Every event shown comes from the DEMO / SIMULATED generator');
+    await expect(panel).toContainText('A real instrumented component of this app emits these events');
+    await expect(panel).toContainText('DEMO / SIMULATED generator');
   });
 
-  test('event explorer tabs list SIMULATED events only for memory/tool/context, with filters and expandable details', async ({ page }) => {
+  test('event explorer tabs list events with source labels, filters and expandable details', async ({ page }) => {
     await page.goto('/observability');
     const ex = page.getByTestId('event-explorer');
     for (const tab of ['memory', 'bus', 'tool', 'context']) {
       await ex.getByTestId(`event-tab-${tab}`).click();
       await expect(ex.getByTestId(`event-panel-${tab}`)).toBeVisible();
       await expect(ex.getByTestId('event-row').first()).toBeVisible();
-      if (tab !== 'bus') {
-        await expect(ex.getByTestId('event-row').filter({ hasText: /ACTUAL/ })).toHaveCount(0);
-        await expect(ex.getByTestId('event-row').first()).toContainText('DEMO / SIMULATED');
-      }
+      // every row carries an honest source label: ACTUAL (real runtime) or DEMO / SIMULATED (generator), never neither
+      await expect(ex.getByTestId('event-row').filter({ hasNotText: /ACTUAL|DEMO \/ SIMULATED/ })).toHaveCount(0);
     }
     await ex.getByTestId('event-tab-tool').click();
     await ex.getByTestId('event-filter-status').selectOption('FAILURE');
@@ -101,7 +104,8 @@ test.describe('observability', () => {
     await ex.getByTestId('event-row-toggle').first().click();
     await expect(ex.getByTestId('event-row-detail')).toContainText('Input metadata');
     await ex.getByTestId('event-filter-source').selectOption('ACTUAL');
-    await expect(ex.getByTestId('empty-state')).toBeVisible(); // there are no ACTUAL tool calls, and none are invented
+    // ACTUAL filter: either an empty state (no real tool calls yet) or only ACTUAL rows - simulated rows are never shown as actual
+    await expect(ex.getByTestId('event-row').filter({ hasText: 'DEMO / SIMULATED' })).toHaveCount(0);
     await ex.getByTestId('filter-reset').click();
     await ex.getByTestId('event-filter-search').fill('read_file');
     await expect(ex.getByTestId('event-row').filter({ hasNotText: 'read_file' })).toHaveCount(0);

@@ -22,7 +22,7 @@ export default function PerformancePanel({ from, bucket, reloadKey }: { from: st
   const { data, error, loading } = useAsync(() => api.get<PerformanceStats>('/observability/performance', { from, bucket }), [from, bucket, reloadKey]);
   return (
     <Card title="Performance">
-      <Async loading={loading && !data} error={error}>
+      <Async loading={loading && !data} error={error} skeleton="cards">
         {data && <PerformanceBody d={data} bucket={bucket} />}
       </Async>
     </Card>
@@ -58,7 +58,7 @@ function PerformanceBody({ d, bucket }: { d: PerformanceStats; bucket: 'hour' | 
                   <XAxis dataKey="category" tick={AXIS_TICK} stroke="currentColor" />
                   <YAxis allowDecimals={false} tick={AXIS_TICK} stroke="currentColor" width={36} />
                   <Tooltip cursor={{ fill: 'currentColor', fillOpacity: 0.08 }} content={tip(p => <div><div className="font-semibold">{p.category}</div><div>{fmtInt(p.count)} operations</div><div>{fmtInt(p.failures)} failed</div></div>)} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} formatter={(v: string) => <span className="text-slate-700 dark:text-slate-300">{v}</span>} />
                   <Bar dataKey="ok" name="Succeeded" stackId="a" fill={COLORS.ok} isAnimationActive={false} />
                   <Bar dataKey="failures" name="Failed" stackId="a" fill={COLORS.bad} isAnimationActive={false} />
                 </BarChart>
@@ -85,7 +85,7 @@ function PerformanceBody({ d, bucket }: { d: PerformanceStats; bucket: 'hour' | 
       </div>
 
       <div>
-        <h3 className="mb-2 text-sm font-semibold">Slow operations <span className="font-normal text-slate-500 dark:text-slate-400">(over {fmtMs(d.slowThresholdMs)}, configurable in Settings)</span></h3>
+        <h3 className="mb-2 text-sm font-semibold">Slow operations <span className="font-normal text-slate-600 dark:text-slate-400">(over {fmtMs(d.slowThresholdMs)}, configurable in Settings)</span></h3>
         <Table head={['Time', 'Operation', 'Category', 'Duration', 'Status', 'Source', 'Trace']}
           empty={d.slowOperations.length === 0 ? <EmptyState message="No slow operations in this range." /> : undefined}>
           {d.slowOperations.map(o => (

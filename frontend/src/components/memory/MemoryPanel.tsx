@@ -6,11 +6,12 @@ import { Button, inputCls } from '../ui/Button';
 import { Async } from '../ui/State';
 import { ConfirmDialog } from '../projects/Modal';
 import { errMessage } from '../projects/util';
+import { useToast } from '../ui/Toast';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useApi';
 import { fmtInt } from '../../lib/format';
 
-const labelCls = 'mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400';
+const labelCls = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400';
 
 interface Draft { title: string; category: MemoryCategory; content: string }
 const EMPTY: Draft = { title: '', category: 'instructions', content: '' };
@@ -50,6 +51,7 @@ function ItemForm({ initial, submitLabel, busy, error, onSubmit, onCancel, testP
 
 /** Project memory (real MemoryStore). Enabled items are injected into every provider request of the project. */
 export default function MemoryPanel({ projectId }: { projectId: string }) {
+  const toast = useToast();
   const base = `/projects/${encodeURIComponent(projectId)}/memory`;
   const list = useAsync(() => api.get<MemoryItemDto[]>(base), [projectId]);
   const [adding, setAdding] = useState(false);
@@ -62,14 +64,16 @@ export default function MemoryPanel({ projectId }: { projectId: string }) {
   const enabled = items.filter(i => i.enabled);
   const enabledTokens = enabled.reduce((s, i) => s + i.estimatedTokens, 0);
 
-  async function run(fn: () => Promise<unknown>, done?: () => void) {
+  async function run(fn: () => Promise<unknown>, done?: () => void, success?: string) {
     setBusy(true); setErr(undefined);
-    try { await fn(); list.reload(); done?.(); } catch (e) { setErr(errMessage(e)); } finally { setBusy(false); }
+    try { await fn(); list.reload(); done?.(); if (success) toast.success(success); }
+    catch (e) { setErr(errMessage(e)); toast.error('Memory update failed', errMessage(e)); }
+    finally { setBusy(false); }
   }
-  const create = (d: Draft) => run(() => api.post(base, { ...d, enabled: true }), () => setAdding(false));
-  const update = (id: string, d: Draft) => run(() => api.patch(`${base}/${id}`, d), () => setEditId(undefined));
-  const toggle = (i: MemoryItemDto) => run(() => api.patch(`${base}/${i.id}`, { enabled: !i.enabled }));
-  const remove = async () => { if (delId) await run(() => api.del(`${base}/${delId}`), () => setDelId(undefined)); };
+  const create = (d: Draft) => run(() => api.post(base, { ...d, enabled: true }), () => setAdding(false), 'Memory item added');
+  const update = (id: string, d: Draft) => run(() => api.patch(`${base}/${id}`, d), () => setEditId(undefined), 'Memory item updated');
+  const toggle = (i: MemoryItemDto) => run(() => api.patch(`${base}/${i.id}`, { enabled: !i.enabled }), undefined, i.enabled ? 'Memory item disabled' : 'Memory item enabled');
+  const remove = async () => { if (delId) await run(() => api.del(`${base}/${delId}`), () => setDelId(undefined), 'Memory item deleted'); };
 
   return (
     <Card title="Project memory" actions={
@@ -78,7 +82,7 @@ export default function MemoryPanel({ projectId }: { projectId: string }) {
         <Button variant="secondary" onClick={() => { setAdding(a => !a); setErr(undefined); }} data-testid="memory-add-toggle">{adding ? 'Close' : 'Add memory item'}</Button>
       </div>
     }>
-      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400" data-testid="memory-privacy-note">
+      <p className="mb-3 text-xs text-slate-600 dark:text-slate-400" data-testid="memory-privacy-note">
         Enabled items are injected into this project's provider requests (real memory injection, counted in input tokens). The content is stored in the app database only and
         is <strong>never written to logs, traces, events or activity</strong>: only counts, sizes, token estimates and hash prefixes are recorded.
         Up to {MEMORY_LIMITS.maxItemsPerProject} items, {fmtInt(MEMORY_LIMITS.maxContentChars)} characters each.
@@ -88,9 +92,9 @@ export default function MemoryPanel({ projectId }: { projectId: string }) {
           <ItemForm testPrefix="memory-add" initial={EMPTY} submitLabel="Add item" busy={busy} error={err} onSubmit={create} onCancel={() => setAdding(false)} />
         </div>
       )}
-      <Async loading={list.loading && !list.data} error={list.error}>
+      <Async loading={list.loading && !list.data} error={list.error} skeleton="table">
         {items.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400" data-testid="memory-empty">No memory items yet. Requests for this project run without injected memory.</p>
+          <p className="text-sm text-slate-600 dark:text-slate-400" data-testid="memory-empty">No memory items yet. Requests for this project run without injected memory.</p>
         ) : (
           <>
             <p className="mb-2 text-sm" data-testid="memory-summary">
@@ -107,7 +111,7 @@ export default function MemoryPanel({ projectId }: { projectId: string }) {
                         <span className="font-medium" data-testid="memory-item-title">{i.title}</span>
                         <Badge tone="blue">{i.category}</Badge>
                         {!i.enabled && <Badge>disabled</Badge>}
-                        <span className="text-xs text-slate-500 dark:text-slate-400" data-testid="memory-item-size">{fmtInt(i.sizeBytes)} bytes - about {fmtInt(i.estimatedTokens)} tokens</span>
+                        <span className="text-xs text-slate-600 dark:text-slate-400" data-testid="memory-item-size">{fmtInt(i.sizeBytes)} bytes - about {fmtInt(i.estimatedTokens)} tokens</span>
                       </div>
                       <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-sm text-slate-600 dark:text-slate-300" data-testid="memory-item-content">{i.content}</p>
                       <div className="mt-2 flex flex-wrap gap-2">
