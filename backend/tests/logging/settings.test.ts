@@ -45,6 +45,39 @@ describe('settings', () => {
     expect((await request(ctx.app).get('/api/settings')).body.data).toEqual({ retentionDays: 14, slowOperationMs: 250, captureContentPlaintext: false });
   });
 
+  it('edge cases: non-object bodies, prototype keys, -0, exponent/float-integers, huge numbers, concurrency', async () => {
+    await request(ctx.app).put('/api/settings').send({ retentionDays: 30, slowOperationMs: 500 });
+    for (const body of ['[]', '"str"', '123', '[{"retentionDays":5}]']) {
+      const r = await request(ctx.app).put('/api/settings').set('content-type', 'application/json').send(body);
+      expect(r.status, body).toBe(400);
+    }
+    for (const body of ['{"__proto__":{"retentionDays":1}}', '{"constructor":{"x":1}}', '{"retentionDays":null}', '{"retentionDays":true}', '{"slowOperationMs":"500"}', '{"retentionDays":1e21}', '{"retentionDays":3650.5}', '{"slowOperationMs":-1}', '{"captureContentPlaintext":null}', '{"captureContentPlaintext":0}']) {
+      const r = await request(ctx.app).put('/api/settings').set('content-type', 'application/json').send(body);
+      expect(r.status, body).toBe(400);
+    }
+    const bad = await request(ctx.app).put('/api/settings').set('content-type', 'application/json').send('{"retentionDays":');
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.code).toBe('VALIDATION_ERROR');
+    expect(({} as Record<string, unknown>).retentionDays).toBeUndefined(); // no prototype pollution
+    // numbers that are integers in JSON are fine
+    expect((await request(ctx.app).put('/api/settings').set('content-type', 'application/json').send('{"retentionDays":1e1,"slowOperationMs":250.0}')).body.data).toMatchObject({ retentionDays: 10, slowOperationMs: 250 });
+    expect((await request(ctx.app).put('/api/settings').set('content-type', 'application/json').send('{"retentionDays":-0}')).body.data.retentionDays).toBe(0);
+    expect((await ctx.prisma.appSetting.findUniqueOrThrow({ where: { key: 'retentionDays' } })).value).toBe('0');
+    // empty and null-ish bodies are a no-op, not an error
+    expect((await request(ctx.app).put('/api/settings').send({})).status).toBe(200);
+    expect((await request(ctx.app).put('/api/settings')).status).toBe(200);
+    // a rejected multi-field update is atomic: nothing partially applied
+    const before = (await request(ctx.app).get('/api/settings')).body.data;
+    expect((await request(ctx.app).put('/api/settings').send({ retentionDays: 5, slowOperationMs: 0 })).status).toBe(400);
+    expect((await request(ctx.app).get('/api/settings')).body.data).toEqual(before);
+    // concurrent updates end in a consistent, valid state
+    await Promise.all([1, 2, 3, 4, 5, 6].map(n => request(ctx.app).put('/api/settings').send({ retentionDays: n, slowOperationMs: n * 100 })));
+    const final = (await request(ctx.app).get('/api/settings')).body.data;
+    expect(final.retentionDays).toBeGreaterThanOrEqual(1);
+    expect(final.retentionDays).toBeLessThanOrEqual(6);
+    expect(final.captureContentPlaintext).toBe(false);
+  });
+
   it('records a settings.updated activity only when something changed', async () => {
     const before = await ctx.prisma.activityEvent.count({ where: { type: 'settings.updated' } });
     await request(ctx.app).put('/api/settings').send({ retentionDays: 99 });

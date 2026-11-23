@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
+import express from 'express';
+import { createLoggingRouter } from '../../src/modules/logging';
+import { errorHandler } from '../../src/middleware/errorHandler';
 import { createTestApp, cleanupTestDir, type TestCtx } from '../helpers/testApp';
 
 let ctx: TestCtx;
@@ -161,5 +164,53 @@ describe('GET /export/:dataset', () => {
     const c = await exp('logs', '?format=csv&search=zzzz-none');
     expect(parseCsv(c.body)).toHaveLength(1);
     expect((await exp('logs', '?search=zzzz-none')).body).toBe('');
+  });
+});
+
+describe('export row guard', () => {
+  const smallApp = (maxExportRows: number) => {
+    const app = express();
+    app.use('/api', createLoggingRouter(ctx.deps, { maxExportRows }));
+    app.use(errorHandler(ctx.deps.instr));
+    return app;
+  };
+  const text = (app: express.Express, url: string) => request(app).get(url).buffer(true).parse((res, cb) => { let d = ''; res.setEncoding('utf8'); res.on('data', c => (d += c)); res.on('end', () => cb(null, d)); });
+
+  it('rejects (400, no download headers) when the filter matches more rows than the cap', async () => {
+    const total = await ctx.prisma.executionLog.count();
+    expect(total).toBeGreaterThan(5);
+    const res = await request(smallApp(5)).get('/api/export/logs');
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(res.body.error.details).toMatchObject({ maxRows: 5 });
+    expect(res.headers['content-disposition']).toBeUndefined();
+  });
+
+  it('limit=n exports the newest n rows (jsonl and csv) and sets X-Total-Rows; limit above the cap is rejected', async () => {
+    const app = smallApp(5);
+    const all = jsonl((await exp('logs')).body);
+    const res = await text(app, '/api/export/logs?limit=3');
+    expect(res.status).toBe(200);
+    expect(res.headers['x-total-rows']).toBe('3');
+    const rows = jsonl(res.body);
+    expect(rows.map(r => r.id)).toEqual(all.slice(0, 3).map(r => r.id));
+    const csv = parseCsv((await text(app, '/api/export/logs?limit=2&format=csv')).body);
+    expect(csv).toHaveLength(3);
+    expect((await request(app).get('/api/export/logs?limit=6')).status).toBe(400);
+    expect((await request(app).get('/api/export/logs?limit=0')).status).toBe(400);
+  });
+
+  it('filters that stay under the cap export normally; limit larger than the match count is fine', async () => {
+    const app = smallApp(5);
+    const res = await text(app, '/api/export/tasks');
+    expect(res.status).toBe(200);
+    expect(jsonl(res.body)).toHaveLength(1);
+    expect(jsonl((await text(app, '/api/export/tasks?limit=5')).body)).toHaveLength(1);
+  });
+
+  it('eventType filter list is capped at 20 values', async () => {
+    const many = Array.from({ length: 21 }, (_, k) => `e${k}`).join(',');
+    expect((await request(ctx.app).get(`/api/logs?eventType=${many}`)).status).toBe(400);
+    expect((await request(ctx.app).get('/api/export/logs?eventType=' + many)).status).toBe(400);
   });
 });

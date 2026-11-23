@@ -26,7 +26,7 @@ export function pruneJsonlFiles(logDir: string, cutoff: Date): number {
 }
 
 export async function runRetentionSweep(
-  prisma: PrismaClient, instr: Instrumentation, logDir: string, now = new Date(),
+  prisma: PrismaClient, instr: Instrumentation, logDir: string, now = new Date(), trigger: 'manual' | 'scheduled' = 'manual',
 ): Promise<BackgroundTaskDto> {
   const task = await instr.startTask({ name: 'retention.sweep', kind: 'RETENTION_SWEEP', source: 'ACTUAL' });
   try {
@@ -49,7 +49,7 @@ export async function runRetentionSweep(
       deleted.logFiles = pruneJsonlFiles(logDir, cutoff);
     }
     await task.succeed({
-      retentionDays, skipped: retentionDays === 0, cutoff: cutoff ? cutoff.toISOString() : null, deleted,
+      trigger, retentionDays, skipped: retentionDays === 0, cutoff: cutoff ? cutoff.toISOString() : null, deleted,
       totalDeleted: Object.values(deleted).reduce((a, b) => a + b, 0),
     });
   } catch (e) {

@@ -50,6 +50,8 @@ export default function RequestDrawer({ id, onClose }: { id: string; onClose: ()
             <section>
               <h3 className="mb-1 font-semibold">Cost breakdown</h3>
               <CostBreakdownView cost={{ ...u, totalCostUsd: u.costUsd }} />
+              <Link to={`/pricing?${new URLSearchParams({ provider: u.provider, model: u.model, in: String(u.inputTokens), out: String(u.outputTokens), cached: String(u.cachedTokens) }).toString()}`}
+                className="mt-2 inline-block text-xs text-brand-600 underline dark:text-brand-100" data-testid="drawer-open-calculator">Open in calculator</Link>
             </section>
 
             <section>

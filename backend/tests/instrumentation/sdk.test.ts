@@ -295,7 +295,7 @@ describe('resilience: instrumentation failures never crash the app', () => {
     await expect(task.succeed({})).resolves.toBeUndefined();
     await expect(instr.recordActivity({ type: 'a.b', message: 'm', source: 'ACTUAL' })).resolves.toBeUndefined();
     expect(errors).toEqual(expect.arrayContaining(['memoryEvent.create', 'executionLog.create', 'trace.create', 'span.create']));
-    expect(spy).toHaveBeenCalled();
+    expect(spy).not.toHaveBeenCalled(); // console output is suppressed under test (see hardening.test.ts for the rate-limited console path)
     expect(readJsonl(dir).length).toBeGreaterThanOrEqual(4); // file mirror survives DB outage
     spy.mockRestore();
   });

@@ -39,7 +39,7 @@ Every `/api` response carries an `x-request-id` header. A client-supplied `x-req
 
 ### Pagination, sorting, dates
 
-- Paged endpoints accept `page` (>= 1, default 1) and `pageSize` (1..200, default 25). Lists are newest first unless a `sort` parameter says otherwise.
+- Paged endpoints accept `page` (>= 1, default 1) and `pageSize` (1..200, default 25). On `/projects`, `/projects/:id/activity` and `/usage`, `page` is capped at 10000 (400 above that); repeated or array query parameters (`?status=a&status=b`, `?search[x]=1`) are a 400. Lists are newest first unless a `sort` parameter says otherwise.
 - Dates (`from`, `to`) are ISO-8601. `to` is **inclusive**; a date-only value (`2026-11-23`) means the whole UTC day (`from` -> 00:00:00.000Z, `to` -> 23:59:59.999Z). `from` after `to` -> 400.
 - Observability / activity / traces / logs / export / budget endpoints treat empty query values (`?status=`) as "not provided". `/usage` and `/projects` validate them (an empty `provider=` is a 400), so omit unused parameters there.
 - Text `search` is a case-insensitive (ASCII) substring match. On `/usage` and `/projects`, `%`, `_` and `\` typed by the user are matched literally.
@@ -71,8 +71,8 @@ Aggregates persisted data only (archived projects included). Returns `DashboardS
 | `projectId` | string | - | restrict to one project; `404` if it does not exist |
 
 Response fields: `range`, `simulated`, `label`, `totals` (`spendUsd, requests, successes, failures, successRate (0..1), inputTokens, outputTokens, cachedTokens`),
-`providerBreakdown[]`, `modelBreakdown[]` (sorted by cost desc), `dailySpend[]` (one entry per UTC day, zero-filled), `budgetUtilization[]` (**active** budgets only, current period; with `projectId` only that project's budgets),
-`recentActivity[]` (10), `recentErrors[]` (10 failed usage events), `recentAlerts[]` (10).
+`providerBreakdown[]`, `modelBreakdown[]` (sorted by cost desc), `dailySpend[]` (one entry per UTC day, zero-filled), `budgetUtilization[]` (**active** budgets only, current period, same period math and numbers as `/budgets/utilization`; with `projectId` that project's budgets **and** the global budgets),
+`recentActivity[]` (10), `recentErrors[]` (10 failed usage events), `recentAlerts[]` (10; with `projectId`: alerts of that project's budgets and of global budgets). `dailySpend` is a single grouped SQL query (exact int64 sums).
 
 ```bash
 curl -s "$API/dashboard?days=7"
@@ -84,8 +84,8 @@ curl -s "$API/dashboard?days=7"
 
 | Method & path | Description | Success | Errors |
 |---|---|---|---|
-| `GET /projects` | List. Query: `status` (`ACTIVE`/`ARCHIVED`), `includeTest` (`true`/`false`, default `true`), `search` (substring of **name**, max 200), `page`, `pageSize`. Newest first. | 200 paged | 400 |
-| `POST /projects` | Body `{ name (1..80, trimmed), description? (<= 1000), isTest? (bool) }`. Names are unique case-insensitively across **all** projects, archived included. | 201 | 400, 409 |
+| `GET /projects` | List. Query: `status` (`ACTIVE`/`ARCHIVED`), `includeTest` (`true`/`false`, default `true`), `search` (substring of **name or description**, max 200), `page`, `pageSize`. Newest first. | 200 paged | 400 |
+| `POST /projects` | Body `{ name (1..80, trimmed, no control characters), description? (<= 1000, no control characters except tab/newline), isTest? (bool) }`. Names are unique case-insensitively across **all** projects, archived included. | 201 | 400, 409 |
 | `GET /projects/:id` | One project with usage. | 200 | 404 |
 | `PATCH /projects/:id` | Body `{ name?, description? (string or null), isTest? }`. No-op if nothing changed. | 200 | 400, 404, 409 |
 | `POST /projects/:id/archive` | Idempotent. Archived projects reject new provider requests (409). | 200 | 404 |
@@ -196,8 +196,8 @@ curl -s -X POST $API/simulations/agent-run -H 'content-type: application/json' \
 `{ data: { providers: string[], models: {provider, model}[] } }`: union of active catalog models and models seen in usage (includes unknown models that have been used).
 
 ### `GET /usage/export.csv`
-Same filters as `GET /usage` (no paging or sorting, newest first, **all** matching rows). `Content-Type: text/csv; charset=utf-8`,
-`Content-Disposition: attachment; filename="usage-export-YYYY-MM-DD.csv"`. Columns: `request_id, created_at, project_id, project_name, provider, model, status, error_code, input_tokens, output_tokens, cached_tokens, cost_usd, cost_class, pricing_version, duration_ms, trace_id, simulated`. Cells starting with `= + - @` (non-numeric) are prefixed with `'` to defuse spreadsheet formulas.
+Same filters as `GET /usage` (no paging or sorting, newest first, **all** matching rows). The body is streamed in keyset batches of 500 rows (constant memory); filter errors are returned as a normal JSON 400 before streaming starts. `Content-Type: text/csv; charset=utf-8`,
+`Content-Disposition: attachment; filename="usage-export-YYYY-MM-DD.csv"`. Columns: `request_id, created_at, project_id, project_name, provider, model, status, error_code, input_tokens, output_tokens, cached_tokens, cost_usd, cost_class, pricing_version, duration_ms, trace_id, simulated`. Cells starting with `= + - @` (non-numeric), TAB or CR are prefixed with `'` to defuse spreadsheet formulas.
 
 ### `GET /usage/:id`
 `:id` is the usage event id **or** its `requestId`. `404` if neither matches.
@@ -358,7 +358,7 @@ Paged `ExecutionLogDto` (`id, ts, level DEBUG|INFO|WARN|ERROR, eventType, catego
 `GET /logs/:id` -> `404` if unknown.
 
 ### `GET /export/:dataset`
-Streams all matching rows (newest first, no paging). `format=jsonl` (default, `application/x-ndjson`) or `format=csv` (`text/csv`; header row always written; objects serialised as JSON text; formula-injection guard also covers leading TAB / CR). Filename `spendguard-<dataset>-<UTC stamp>.<ext>`. Unknown dataset -> 404; bad filter or format -> 400.
+Streams all matching rows (newest first, no paging). `format=jsonl` (default, `application/x-ndjson`) or `format=csv` (`text/csv`; header row always written; objects serialised as JSON text; formula-injection guard also covers leading TAB / CR). Filename `spendguard-<dataset>-<UTC stamp>.<ext>`. Unknown dataset -> 404; bad filter or format -> 400. Rows are read in batches of 500 (bounded memory). **Row guard:** if the filter matches more than 250,000 rows (env `EXPORT_MAX_ROWS`) the request is rejected with `400 VALIDATION_ERROR` (`details: {total, maxRows}`) before any download header is sent; pass `limit=<n>` (1..cap) to export only the newest `n` rows. Response header `X-Total-Rows` = number of rows that will be streamed. `eventType` accepts at most 20 comma-separated values.
 
 | Dataset | Filters (mirror the list endpoints, with the differences noted below) |
 |---|---|
@@ -391,7 +391,7 @@ curl -s -X PUT $API/settings -H 'content-type: application/json' -d '{"captureCo
 ```
 
 ### `POST /logging/retention/run`
-No body. Runs the retention sweep now, `200` `{ data: BackgroundTaskDto }` (`kind: RETENTION_SWEEP`, `result` = `{ retentionDays, skipped, cutoff, deleted {...per table, logFiles}, totalDeleted }`). With `retentionDays = 0` it is a no-op with `skipped: true`.
+No body. Runs the retention sweep now, `200` `{ data: BackgroundTaskDto }` (`kind: RETENTION_SWEEP`, `result` = `{ trigger: "manual", retentionDays, skipped, cutoff, deleted {...per table, logFiles}, totalDeleted }`; the in-process scheduler (`startRetentionScheduler`: first run 60s after start, then every 6h, never overlapping, skipped when `retentionDays = 0`) creates the same task with `trigger: "scheduled"`). With `retentionDays = 0` it is a no-op with `skipped: true`.
 
 ```bash
 curl -s -X POST $API/logging/retention/run

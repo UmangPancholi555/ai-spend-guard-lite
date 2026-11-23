@@ -81,6 +81,49 @@ describe('sanitizeAttributes', () => {
   });
 });
 
+describe('sanitizer: credential keys and values (hardening)', () => {
+  it('redacts cookie/set-cookie/session/csrf/credential/passwd/private keys', () => {
+    const out = sanitizeAttributes({
+      cookie: 'a=b', 'set-cookie': 'sid=1', sessionId: 'abc123', session: { id: 1 }, csrfToken: 't', credentials: 'u:p', passwd: 'x',
+      privateKey: 'k', isPrivate: true, sessionCount: 3, tokenCount: 4, passwordHash: 'abc123',
+    }) as any;
+    for (const k of ['cookie', 'set-cookie', 'sessionId', 'session', 'csrfToken', 'credentials', 'passwd', 'privateKey', 'isPrivate']) {
+      expect(out[k]?.redacted, k).toBe(true);
+    }
+    expect(out.sessionCount).toBe(3);
+    expect(out.tokenCount).toBe(4);
+    expect(out.passwordHash).toBe('abc123'); // hash-suffixed key + non-secret-looking value is metadata
+  });
+
+  it('redacts credential-looking VALUES under any key: scrypt/bcrypt/argon2 hashes, JWTs, Bearer, PEM, salt:hash hex', () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+    const out = sanitizeAttributes({
+      a: 'scrypt$16384$8$1$c2FsdHNhbHQ=$aGFzaGhhc2hoYXNo', passwordHash: 'scrypt$16384$8$1$c2FsdA==$aGFzaA==', b: '$2b$12$abcdefghijklmnopqrstuv', c: '$argon2id$v=19$m=65536',
+      d: `note ${jwt} inside`, e: 'Authorization: Bearer abcdefgh12345678', f: '-----BEGIN RSA PRIVATE KEY-----\nMIIE',
+      g: 'a'.repeat(32) + ':' + 'b'.repeat(128), safe: 'plain text value', hash: 'a'.repeat(64),
+    }) as any;
+    for (const k of ['a', 'passwordHash', 'b', 'c', 'd', 'e', 'f', 'g']) expect(out[k]?.redacted, k).toBe(true);
+    expect(out.safe).toBe('plain text value');
+    expect(out.hash).toBe('a'.repeat(64)); // sha256-style hash is metadata
+  });
+
+  it('scrubs credentials and control chars embedded in free-text messages (DB + JSONL)', async () => {
+    const { createTestApp, cleanupTestDir } = await import('../helpers/testApp');
+    const { readJsonl } = await import('./util');
+    const ctx = await createTestApp();
+    try {
+      const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+      await ctx.deps.instr.recordError({ source: 'ACTUAL', category: 'PROVIDER', operation: 'scrub', error: new Error(`401 for Bearer sk-live-abcdefghijklmnop and ${jwt}`) });
+      const row = await ctx.prisma.executionLog.findFirstOrThrow({ where: { operation: 'scrub' } });
+      for (const text of [row.errorMessage, row.message, JSON.stringify(readJsonl(ctx.deps.config.logDir))]) {
+        expect(text).not.toContain('eyJhbGci');
+        expect(text).not.toContain('abcdefghijklmnop');
+      }
+      expect(row.errorMessage).toContain('[REDACTED]');
+    } finally { await ctx.close(); cleanupTestDir(ctx.dir); }
+  });
+});
+
 describe('privacy end-to-end: no raw content in DB or JSONL', () => {
   it('stores only redacted markers for every record* path', async () => {
     const { createTestApp, cleanupTestDir } = await import('../helpers/testApp');

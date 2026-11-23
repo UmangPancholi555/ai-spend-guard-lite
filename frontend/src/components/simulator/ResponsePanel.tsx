@@ -4,6 +4,7 @@ import { Badge, StatusBadge } from '../ui/Badge';
 import { Card } from '../ui/Card';
 import { fmtDateTime, fmtInt, fmtMs, fmtUsd } from '../../lib/format';
 import CostBreakdownView from '../usage/CostBreakdownView';
+import RuntimeSummary from '../memory/RuntimeSummary';
 
 /** Renders a MockProviderResponse. Always labeled DEMO / SIMULATED. */
 export default function ResponsePanel({ r }: { r: MockProviderResponse }) {
@@ -37,6 +38,7 @@ export default function ResponsePanel({ r }: { r: MockProviderResponse }) {
             <CostBreakdownView cost={r.cost} testId="simulator-result-cost" />
           </section>
         </div>
+        <RuntimeSummary r={r} />
         <section className="flex flex-wrap gap-x-6 gap-y-1">
           <Link to={`/usage?detail=${encodeURIComponent(r.usageEventId)}`} className="text-brand-600 underline dark:text-brand-100" data-testid="simulator-usage-link">View request details</Link>
           <Link to={`/traces/${r.traceId}`} className="text-brand-600 underline dark:text-brand-100" data-testid="simulator-trace-link">View trace</Link>

@@ -43,6 +43,7 @@ describe('POST /logging/retention/run', () => {
     expect(task).toMatchObject({ kind: 'RETENTION_SWEEP', status: 'SUCCEEDED', source: 'ACTUAL' });
     expect(task.durationMs).toBeGreaterThanOrEqual(0);
     expect(task.result.retentionDays).toBe(30);
+    expect(task.result.trigger).toBe('manual');
     expect(task.result.deleted).toMatchObject({ memoryEvents: 1, busEvents: 1, toolCallEvents: 1, contextEvents: 1, traces: 1, spans: 2, logFiles: 3 });
     expect(task.result.deleted.executionLogs).toBeGreaterThanOrEqual(7);
     expect(task.result.totalDeleted).toBeGreaterThan(10);

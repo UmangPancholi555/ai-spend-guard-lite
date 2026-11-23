@@ -83,7 +83,7 @@ export async function runSeed(deps: AppDeps, input: SimulationSeedRequest & { se
         projectId: project.id, provider: p.provider, model: p.model, prompt, maxOutputTokens: p.maxOutputTokens,
         temperature: p.temperature, simulateFailure: p.failure, simulateAgentActivity: withAgent,
       }, {
-        createdAt: p.createdAt, traceSource: 'SIMULATED', trace: withAgent, activity: false, latency: false,
+        createdAt: p.createdAt, traceSource: 'SIMULATED', trace: withAgent, activity: false, latency: false, runtime: 'silent', injectMemory: false,
         project, extraMetadata: { seeded: true, seedTaskId: task.id, backdated: true },
       });
       if (res.status === 'FAILURE') failures++;

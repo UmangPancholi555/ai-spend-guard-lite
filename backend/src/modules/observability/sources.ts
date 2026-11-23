@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { InstrumentationSourceDto } from '../../../../shared/types';
 import { ERROR_WHERE } from './overview';
+import { runtimeRegistry, type RuntimeRegistry } from '../runtime/registry';
 
 type Counts = { actual: number; simulated: number; last: Date | null };
 
@@ -17,14 +18,16 @@ function groupCounts(
 }
 
 /**
- * Honest instrumentation registry. Counts always come from the DB; status rules:
- *  - request, error: CONNECTED. The real request-lifecycle middleware / provider pipeline / error handler are wired into this app
- *    (even if no event has been recorded yet; the note says so).
- *  - bus: CONNECTED only if ACTUAL bus rows exist (in-app budget/alert bus); SIMULATED_ONLY if only simulated rows exist; else UNAVAILABLE.
- *  - memory, tool, context: NEVER CONNECTED (this app has no real memory/tool/context runtime). Any rows -> SIMULATED_ONLY, none -> UNAVAILABLE.
- *    If rows labelled ACTUAL exist anyway they are reported in `actualEvents` and flagged in `notes` as unverified.
+ * Honest instrumentation registry. Counts always come from the DB (ACTUAL vs SIMULATED split by the `source` column).
+ * Status rules (kind -> status), driven by the runtime component registry (modules/runtime/registry):
+ *  - a kind is CONNECTED only if a REAL in-app component registered itself for it (even with zero events; the note says so).
+ *    request: lifecycle middleware; bus/memory/tool/context: the runtime EventBus / MemoryStore / ToolExecutor / ContextManager;
+ *    error: error recording of the HTTP error handler + request pipeline.
+ *  - an unregistered kind is never CONNECTED: SIMULATED_ONLY when only simulator rows exist, otherwise UNAVAILABLE
+ *    (rows labelled ACTUAL without a registered component are flagged as unverified).
+ *  - the DEMO simulator is reported as its own entry (always SIMULATED_ONLY; counts = every SIMULATED row of the typed event tables).
  */
-export async function getSources(prisma: PrismaClient): Promise<InstrumentationSourceDto[]> {
+export async function getSources(prisma: PrismaClient, registry: RuntimeRegistry = runtimeRegistry): Promise<InstrumentationSourceDto[]> {
   const [req, err, mem, bus, tool, ctx] = await Promise.all([
     prisma.executionLog.groupBy({ by: ['source'], where: { category: { in: ['REQUEST', 'PROVIDER'] } }, _count: { _all: true }, _max: { ts: true } }),
     prisma.executionLog.groupBy({ by: ['source'], where: ERROR_WHERE, _count: { _all: true }, _max: { ts: true } }),
@@ -41,24 +44,39 @@ export async function getSources(prisma: PrismaClient): Promise<InstrumentationS
   ): InstrumentationSourceDto => ({
     id, kind, name, status, actualEvents: c.actual, simulatedEvents: c.simulated, lastEventAt: c.last ? c.last.toISOString() : null, notes,
   });
-  const simOnly = (c: Counts): InstrumentationSourceDto['status'] => (c.actual + c.simulated > 0 ? 'SIMULATED_ONLY' : 'UNAVAILABLE');
-  const unverified = (c: Counts) =>
-    c.actual > 0 ? ` WARNING: ${c.actual} row(s) are labelled ACTUAL but this app has no real runtime for it; treat them as unverified.` : '';
 
-  const busStatus: InstrumentationSourceDto['status'] = bu.actual > 0 ? 'CONNECTED' : bu.simulated > 0 ? 'SIMULATED_ONLY' : 'UNAVAILABLE';
+  /** registry-driven entry */
+  const driven = (id: string, kind: Exclude<InstrumentationSourceDto['kind'], 'simulator'>, name: string, c: Counts): InstrumentationSourceDto => {
+    const comp = registry.get(kind);
+    if (comp) {
+      const none = c.actual + c.simulated === 0;
+      const sim = c.simulated > 0 ? ` ${c.simulated} DEMO/SIMULATED event(s) from the simulator are counted separately.` : '';
+      return entry(id, kind, name, c, 'CONNECTED', `Real: ${comp.description}${none ? ' No events recorded yet.' : ''}${sim}`);
+    }
+    const status: InstrumentationSourceDto['status'] = c.actual + c.simulated > 0 ? 'SIMULATED_ONLY' : 'UNAVAILABLE';
+    const unverified = c.actual > 0 ? ` WARNING: ${c.actual} row(s) are labelled ACTUAL but no real ${kind} component is registered in this app; treat them as unverified.` : '';
+    return entry(id, kind, name, c, status, `No real ${kind} component is registered in this app; only the DEMO simulator can emit these events.${unverified}`);
+  };
+
+  const simLast = await Promise.all([
+    prisma.memoryEvent.aggregate({ where: { source: 'SIMULATED' }, _max: { createdAt: true } }),
+    prisma.busEvent.aggregate({ where: { source: 'SIMULATED' }, _max: { createdAt: true } }),
+    prisma.toolCallEvent.aggregate({ where: { source: 'SIMULATED' }, _max: { createdAt: true } }),
+    prisma.contextEvent.aggregate({ where: { source: 'SIMULATED' }, _max: { createdAt: true } }),
+  ]);
+  const simCounts: Counts = {
+    actual: 0, simulated: me.simulated + bu.simulated + to.simulated + cx.simulated,
+    last: simLast.map(r => r._max.createdAt).reduce<Date | null>((m, d) => (d && (!m || d > m) ? d : m), null),
+  };
 
   return [
-    entry('request-lifecycle', 'request', 'Request lifecycle', rq, 'CONNECTED',
-      'Real: API request middleware and the mock provider pipeline emit ACTUAL traces/spans/logs.' + (rq.actual + rq.simulated === 0 ? ' No events recorded yet.' : '')),
-    entry('memory-injection', 'memory', 'Memory injection', me, simOnly(me),
-      'No real memory runtime exists in this app; only the DEMO simulator emits memory events.' + unverified(me)),
-    entry('event-bus', 'bus', 'Event bus', bu, busStatus,
-      'CONNECTED only for the in-app budget/alert bus operations this app really emits (ACTUAL); simulated bus operations are SIMULATED.'),
-    entry('tool-calls', 'tool', 'Tool calls', to, simOnly(to),
-      'No real tool runtime exists in this app; only the DEMO simulator emits tool calls.' + unverified(to)),
-    entry('context-lifecycle', 'context', 'Context lifecycle', cx, simOnly(cx),
-      'No real context runtime exists in this app; only the DEMO simulator emits context events.' + unverified(cx)),
-    entry('error-handler', 'error', 'Error handling', er, 'CONNECTED',
-      'Real: error middleware and pipeline failures are recorded as ACTUAL error events.' + (er.actual + er.simulated === 0 ? ' No errors recorded.' : '')),
+    driven('request-lifecycle', 'request', 'Request lifecycle', rq),
+    driven('memory-injection', 'memory', 'Memory injection', me),
+    driven('event-bus', 'bus', 'Event bus', bu),
+    driven('tool-calls', 'tool', 'Tool calls', to),
+    driven('context-lifecycle', 'context', 'Context lifecycle', cx),
+    driven('error-handler', 'error', 'Error handling', er),
+    entry('demo-simulator', 'simulator', 'DEMO simulator', simCounts, 'SIMULATED_ONLY',
+      'DEMO / SIMULATED generator (POST /simulations/agent-run, simulateAgentActivity, demo seeding). Its events are labelled SIMULATED and never counted as actual; counts = simulated memory + bus + tool + context events.'),
   ];
 }

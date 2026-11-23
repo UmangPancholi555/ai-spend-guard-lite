@@ -14,7 +14,7 @@ export interface AgentRunResult {
   simulated: true; label: typeof SIM_LABEL; error?: { message: string };
 }
 
-export async function runAgentSimulation(deps: AppDeps, input: { projectId: string; simulateFailure?: SimulatedFailure }): Promise<AgentRunResult> {
+export async function runAgentSimulation(deps: AppDeps, input: { projectId: string; simulateFailure?: SimulatedFailure }, opts: { httpRequestId?: string; onTrace?: (traceId: string) => void } = {}): Promise<AgentRunResult> {
   const { instr } = deps;
   const failure = input.simulateFailure ?? 'none';
   const project = await loadActiveProject(deps, input.projectId);
@@ -25,9 +25,10 @@ export async function runAgentSimulation(deps: AppDeps, input: { projectId: stri
   const at = new Date();
   const trace = await instr.startTrace({
     name: 'agent.run', projectId: project.id, requestId, source: 'SIMULATED',
-    attributes: { simulated: true, label: SIM_LABEL, simulateFailure: failure },
+    attributes: { simulated: true, label: SIM_LABEL, simulateFailure: failure, ...(opts.httpRequestId ? { httpRequestId: opts.httpRequestId } : {}) },
     at,
   });
+  opts.onTrace?.(trace.traceId);
   const perf0 = performance.now();
   const clock = (): Date => new Date(at.getTime() + Math.floor(performance.now() - perf0));
   const ids = () => ({ traceId: trace.traceId, spanId: trace.rootSpan.spanId, projectId: project.id, requestId, at: clock() });

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { AppDeps } from '../../contracts/services';
-import { ah, pageOf, paginationQuery, parse } from '../../utils/http';
+import { ah, pageOf, parse } from '../../utils/http';
+import { boundedPagination } from '../usage/pagination';
 import { createProjectsService } from './service';
 import { toActivityDto } from './mappers';
 import { idParam, projectCreateSchema, projectListQuery, projectUpdateSchema } from './schemas';
@@ -49,7 +50,7 @@ export function createProjectsRouter(deps: AppDeps): Router {
 
   router.get('/projects/:id/activity', ah(async (req, res) => {
     const { id } = parse(idParam, req.params);
-    const { page, pageSize } = parse(paginationQuery, req.query);
+    const { page, pageSize } = parse(boundedPagination, req.query);
     const { total, rows } = await svc.activity(id, page, pageSize);
     res.json({ data: rows.map(toActivityDto), pagination: pageOf(total, page, pageSize) });
   }));

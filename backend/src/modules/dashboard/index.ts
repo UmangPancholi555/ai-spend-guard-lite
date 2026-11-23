@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import type { AppDeps } from '../../contracts/services';
 import type { BudgetAlertDto, BudgetPeriod, DashboardStats, AlertThreshold } from '../../../../shared/types';
 import { ah, parse } from '../../utils/http';
@@ -17,6 +18,21 @@ const dashboardQuery = z.object({
 });
 
 const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+
+/**
+ * One grouped query instead of loading every row: createdAt is stored as integer epoch-ms, so the UTC day is exact.
+ * Uses (projectId, createdAt) / createdAt indexes. SUM over int64 is exact (overflows only above ~9.2M USD per day).
+ */
+async function dailyBuckets(prisma: PrismaClient, from: Date, to: Date, projectId?: string) {
+  const rows = await prisma.$queryRaw<{ day: string; pico: bigint; requests: bigint; failures: bigint }[]>(Prisma.sql`
+    SELECT strftime('%Y-%m-%d', createdAt / 1000, 'unixepoch') AS day,
+           COALESCE(SUM(costPico), 0) AS pico, COUNT(*) AS requests,
+           COALESCE(SUM(CASE WHEN status = 'FAILURE' THEN 1 ELSE 0 END), 0) AS failures
+    FROM "UsageEvent"
+    WHERE createdAt >= ${from} AND createdAt < ${to} ${projectId ? Prisma.sql`AND projectId = ${projectId}` : Prisma.empty}
+    GROUP BY day`);
+  return rows.map(r => ({ day: r.day, pico: BigInt(r.pico), requests: Number(r.requests), failures: Number(r.failures) }));
+}
 
 export function createDashboardRouter(deps: AppDeps): Router {
   const router = Router();
@@ -45,7 +61,7 @@ export function createDashboardRouter(deps: AppDeps): Router {
       prisma.usageEvent.groupBy({
         by: ['providerKey', 'modelName'], where, _count: { _all: true }, _sum: { costPico: true, inputTokens: true, outputTokens: true, cachedTokens: true },
       }),
-      prisma.usageEvent.findMany({ where, select: { createdAt: true, costPico: true, status: true } }),
+      dailyBuckets(prisma, from, tomorrow, projectId),
       computeBudgetUtilization(prisma, now, projectId),
       prisma.activityEvent.findMany({
         where: projWhere, include: { project: { select: { name: true } } },
@@ -56,20 +72,18 @@ export function createDashboardRouter(deps: AppDeps): Router {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 10,
       }),
       prisma.budgetAlert.findMany({
-        where: projectId ? { budget: { projectId } } : {},
+        where: projectId ? { budget: { OR: [{ projectId }, { projectId: null }] } } : {},
         include: { budget: { include: { project: { select: { name: true } } } } },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 10,
       }),
     ]);
 
-    // exact daily buckets: BigInt accumulation per UTC day, zero-filled across the whole range
+    // zero-filled UTC days; per-day sums were accumulated exactly in SQL (int64) and arrive as BigInt
     const buckets = new Map<string, { pico: bigint; requests: number; failures: number }>();
     for (let i = 0; i < days; i++) buckets.set(dayKey(new Date(fromMs + i * DAY_MS)), { pico: 0n, requests: 0, failures: 0 });
     for (const r of dailyRows) {
-      const b = buckets.get(dayKey(r.createdAt));
-      if (!b) continue;
-      b.pico += r.costPico; b.requests += 1;
-      if (r.status === 'FAILURE') b.failures += 1;
+      const b = buckets.get(r.day);
+      if (b) { b.pico = r.pico; b.requests = r.requests; b.failures = r.failures; }
     }
 
     const requests = totalAgg._count._all;

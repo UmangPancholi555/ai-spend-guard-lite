@@ -15,6 +15,7 @@ import { UtilizationBar } from '../components/dashboard/UtilizationBar';
 import { ConfirmDialog, Modal } from '../components/projects/Modal';
 import ProjectForm from '../components/projects/ProjectForm';
 import { errMessage } from '../components/projects/util';
+import MemoryPanel from '../components/memory/MemoryPanel';
 
 export default function ProjectDetailPage() {
   const { id = '' } = useParams();
@@ -105,6 +106,8 @@ export default function ProjectDetailPage() {
                   )}
                 </Async>
               </Card>
+
+              <MemoryPanel projectId={p.id} />
 
               <Card title="Recent usage" actions={<Link to={`/usage?projectId=${encodeURIComponent(p.id)}`} className="text-sm text-brand-600 hover:underline dark:text-brand-100" data-testid="project-usage-link">All usage for this project</Link>}>
                 <Async loading={usage.loading && !usage.data} error={usage.error}>

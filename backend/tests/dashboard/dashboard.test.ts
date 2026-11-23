@@ -228,10 +228,24 @@ describe('dashboard: aggregations from persisted data', () => {
     expect(by[monthly.id].spendUsd).toBe('10.500000000999'); // 10_500_000_000_111 + 888 (future-dated row still inside the month)
     expect(by[monthly.id].percent).toBe(300);
 
-    // project filter -> only that project's budgets
-    const f = (await dash(`?projectId=${p2}`)).body.data;
-    expect(f.budgetUtilization.map((b: { budget: { id: string } }) => b.budget.id)).toEqual([weekly.id]);
-    expect((await dash(`?projectId=${p1}`)).body.data.budgetUtilization).toEqual([]);
+    // project filter -> that project's budgets AND the global ones (active only), same math as the budgets module
+    const names = async (q: string) => (await dash(q)).body.data.budgetUtilization.map((b: { budget: { name: string } }) => b.budget.name).sort();
+    expect(await names(`?projectId=${p2}`)).toEqual(['Global daily', 'Global monthly', 'P2 weekly']);
+    expect(await names(`?projectId=${p1}`)).toEqual(['Global daily', 'Global monthly']);
+    const f = (await dash(`?projectId=${p1}`)).body.data.budgetUtilization.find((b: { budget: { id: string } }) => b.budget.id === daily.id);
+    expect(f.spendUsd).toBe('3.500000000001'); // global budget spend still covers every project
+    expect(f.budget.active).toBe(true);
+    expect(d.budgetUtilization.every((b: { budget: { active: boolean } }) => b.budget.active)).toBe(true);
+  });
+
+  it('budgetUtilization equals GET /budgets/utilization for the same budgets (shared period math)', async () => {
+    freeze();
+    const dashU = (await request(ctx.api).get('/api/dashboard?days=7')).body.data.budgetUtilization;
+    const apiU = (await request(ctx.api).get('/api/budgets/utilization')).body.data.filter((u: { budget: { active: boolean } }) => u.budget.active);
+    vi.useRealTimers();
+    const key = (u: { budget: { id: string } }) => u.budget.id;
+    const sortById = <T extends { budget: { id: string } }>(a: T[]) => [...a].sort((x, y) => key(x).localeCompare(key(y)));
+    expect(sortById(dashU)).toEqual(sortById(apiU));
   });
 
   it('recentAlerts: last 10 budget alerts newest first, with budget/project info', async () => {
@@ -256,8 +270,13 @@ describe('dashboard: aggregations from persisted data', () => {
     expect(d.recentAlerts[1]).toMatchObject({ budgetName: 'Global daily', projectId: null, projectName: null, period: 'DAILY' });
     const times = d.recentAlerts.map((a: { createdAt: string }) => a.createdAt);
     expect([...times].sort().reverse()).toEqual(times);
+    // project filter: alerts of that project's budgets plus global budgets (which also cover the project)
     const f = (await dash(`?projectId=${p2}`)).body.data;
-    expect(f.recentAlerts).toHaveLength(6);
-    expect(f.recentAlerts.every((a: { projectId: string }) => a.projectId === p2)).toBe(true);
+    expect(f.recentAlerts).toHaveLength(10);
+    expect(new Set(f.recentAlerts.map((a: { projectId: string | null }) => a.projectId))).toEqual(new Set([p2, null]));
+    await ctx.prisma.budgetAlert.deleteMany({ where: { budgetId: b.id } });
+    const g2 = (await dash(`?projectId=${p2}`)).body.data;
+    expect(g2.recentAlerts.every((a: { projectId: string | null }) => a.projectId === null)).toBe(true);
+    expect((await dash(`?projectId=${p1}`)).body.data.recentAlerts).toHaveLength(6);
   });
 });

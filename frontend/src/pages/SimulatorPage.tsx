@@ -29,6 +29,7 @@ export default function SimulatorPage() {
   const [temperature, setTemperature] = useState('0.7');
   const [failure, setFailure] = useState<SimulatedFailure>('none');
   const [agentActivity, setAgentActivity] = useState(false);
+  const [injectMemory, setInjectMemory] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [result, setResult] = useState<MockProviderResponse>();
@@ -71,7 +72,7 @@ export default function SimulatorPage() {
     if (!prompt.trim()) return setError('Prompt is required.');
     if (!Number.isInteger(max) || max < 1) return setError('Max output tokens must be a positive whole number.');
     if (temp !== undefined && (!Number.isFinite(temp) || temp < 0 || temp > 2)) return setError('Temperature must be between 0 and 2.');
-    const body: MockProviderRequest = { projectId, provider, model: effectiveModel, prompt, maxOutputTokens: max, simulateFailure: failure, simulateAgentActivity: agentActivity };
+    const body: MockProviderRequest = { projectId, provider, model: effectiveModel, prompt, maxOutputTokens: max, simulateFailure: failure, simulateAgentActivity: agentActivity, injectMemory };
     if (temp !== undefined) body.temperature = temp;
     setBusy(true);
     try { setResult(await api.post<MockProviderResponse>('/providers/requests', body)); projects.reload(); }
@@ -202,6 +203,11 @@ export default function SimulatorPage() {
                     </select>
                   </div>
                 </div>
+
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-0.5" checked={injectMemory} onChange={e => setInjectMemory(e.target.checked)} data-testid="sim-inject-memory" />
+                  <span>Inject project memory <span className="block text-xs text-slate-500 dark:text-slate-400">Real memory injection: the project's enabled memory items are added to the request context and counted in input tokens (ACTUAL events). Nothing happens if the project has no items.</span></span>
+                </label>
 
                 <label className="flex items-start gap-2 text-sm">
                   <input type="checkbox" className="mt-0.5" checked={agentActivity} onChange={e => setAgentActivity(e.target.checked)} data-testid="sim-agent-activity" />

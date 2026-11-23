@@ -8,6 +8,8 @@
  *  - Error envelope:    { error: { code, message, details? } }
  */
 
+import type { RuntimeMemorySummary, RuntimeContextSummary, RuntimeToolSummary, RuntimeBudgetPreflight } from './runtime';
+
 export type Source = 'ACTUAL' | 'SIMULATED';
 export const SOURCES: Source[] = ['ACTUAL', 'SIMULATED'];
 
@@ -65,6 +67,7 @@ export interface MockProviderRequest {
   temperature?: number;
   simulateFailure?: SimulatedFailure; // default 'none'
   simulateAgentActivity?: boolean;    // default false: also emit SIMULATED memory/bus/tool/context events
+  injectMemory?: boolean;             // default true: inject the project's enabled memory items (real MemoryStore)
 }
 export interface MockProviderResponse {
   requestId: string; traceId: string;
@@ -79,6 +82,12 @@ export interface MockProviderResponse {
   error?: { code: string; message: string };
   budgetAlerts: BudgetAlertDto[]; // alerts newly raised by this request
   usageEventId: string;
+  /** wave 2: real in-app runtime summary (all ACTUAL; metadata only) */
+  memory?: RuntimeMemorySummary;
+  context?: RuntimeContextSummary;
+  tools?: RuntimeToolSummary[];
+  budgetPreflight?: RuntimeBudgetPreflight;
+  httpRequestId?: string;
 }
 
 // ---------- Cost ----------
@@ -242,7 +251,7 @@ export interface PerformanceStats {
   durationSeries: { bucket: string; avgMs: number; count: number }[]; // bucket = ISO hour or day
 }
 export interface InstrumentationSourceDto {
-  id: string; kind: 'request' | 'memory' | 'bus' | 'tool' | 'context' | 'error';
+  id: string; kind: 'request' | 'memory' | 'bus' | 'tool' | 'context' | 'error' | 'simulator';
   name: string;
   /** CONNECTED = real instrumented component in this app emitting ACTUAL events;
    *  SIMULATED_ONLY = only DEMO/SIMULATED generators exist;

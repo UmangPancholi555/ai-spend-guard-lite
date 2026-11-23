@@ -192,6 +192,17 @@ describe('projects: list', () => {
     expect(wild.body.pagination.total).toBe(2);
   });
 
+  it('search matches name OR description (literal wildcards too)', async () => {
+    await post('/api/projects', { name: 'Desc Host A', description: 'handles invoices for ACME' });
+    await post('/api/projects', { name: 'Desc Host B', description: 'discount 15%_flat' });
+    await post('/api/projects', { name: 'Acme Named' });
+    const names = async (q: string) => (await request(ctx.api).get(`/api/projects?search=${encodeURIComponent(q)}`)).body.data.map((p: { name: string }) => p.name).sort();
+    expect(await names('acme')).toEqual(['Acme Named', 'Desc Host A']);
+    expect(await names('invoices')).toEqual(['Desc Host A']);
+    expect(await names('15%_flat')).toEqual(['Desc Host B']);
+    expect(await names('15%x')).toEqual([]);
+  });
+
   it('paginates (newest first) and validates query', async () => {
     const p1 = await request(ctx.api).get('/api/projects?search=ListZed&pageSize=2&page=1');
     const p2 = await request(ctx.api).get('/api/projects?search=ListZed&pageSize=2&page=2');
@@ -324,6 +335,64 @@ describe('projects: activity history', () => {
     expect((await request(ctx.api).get('/api/projects/nope/activity')).status).toBe(404);
     const p = (await post('/api/projects', { name: 'Hist Bad' })).body.data;
     expect((await request(ctx.api).get(`/api/projects/${p.id}/activity?page=0`)).status).toBe(400);
+  });
+});
+
+describe('projects: input hardening', () => {
+  it('rejects control characters in name/description, allows newlines in description', async () => {
+    expect((await post('/api/projects', { name: 'bad\nname' })).status).toBe(400);
+    expect((await post('/api/projects', { name: 'bad\u0000name' })).status).toBe(400);
+    expect((await post('/api/projects', { name: 'ok name', description: 'nul\u0000' })).status).toBe(400);
+    const ok = await post('/api/projects', { name: 'Multiline Desc', description: 'line1\nline2\ttabbed' });
+    expect(ok.status).toBe(201);
+    expect(ok.body.data.description).toBe('line1\nline2\ttabbed');
+    const p = ok.body.data;
+    expect((await request(ctx.api).patch(`/api/projects/${p.id}`).send({ name: 'x\ry' })).status).toBe(400);
+  });
+
+  it('rejects a description over 1000 chars, non-object bodies and malformed JSON with the error envelope', async () => {
+    const long = await post('/api/projects', { name: 'Long Desc', description: 'd'.repeat(1001) });
+    expect(long.status).toBe(400);
+    expect(long.body.error.code).toBe('VALIDATION_ERROR');
+    for (const body of [[], 'text', 42, null]) {
+      const r = await request(ctx.api).post('/api/projects').set('content-type', 'application/json').send(JSON.stringify(body));
+      expect([400]).toContain(r.status);
+      expect(r.body.error.code).toBe('VALIDATION_ERROR');
+    }
+    const bad = await request(ctx.api).post('/api/projects').set('content-type', 'application/json').send('{oops');
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('bounds pagination (page <= 10000) and rejects repeated/array query params', async () => {
+    expect((await request(ctx.api).get('/api/projects?page=10001')).status).toBe(400);
+    expect((await request(ctx.api).get('/api/projects?page=99999999999999999999')).status).toBe(400);
+    expect((await request(ctx.api).get('/api/projects?page=10000')).status).toBe(200);
+    expect((await request(ctx.api).get('/api/projects?status=ACTIVE&status=ARCHIVED')).status).toBe(400);
+    expect((await request(ctx.api).get('/api/projects?search[a]=1')).status).toBe(400);
+    const p = (await post('/api/projects', { name: 'Page Bound' })).body.data;
+    expect((await request(ctx.api).get(`/api/projects/${p.id}/activity?page=10001`)).status).toBe(400);
+  });
+
+  it('serialises concurrent identical creates: exactly one 201, the rest 409', async () => {
+    const rs = await Promise.all(Array.from({ length: 6 }, () => post('/api/projects', { name: 'Race Name' })));
+    expect(rs.filter(r => r.status === 201)).toHaveLength(1);
+    expect(rs.filter(r => r.status === 409)).toHaveLength(5);
+  });
+
+  it('list endpoint issues one grouped usage query regardless of page size (no N+1)', async () => {
+    const seen: string[] = [];
+    const { PrismaClient } = await import('@prisma/client');
+    const logged = new PrismaClient({ datasourceUrl: ctx.databaseUrl, log: [{ emit: 'event', level: 'query' }] });
+    (logged as unknown as { $on: (e: string, cb: (q: { query: string }) => void) => void }).$on('query', q => seen.push(q.query));
+    try {
+      const { buildApp } = await import('../../src/app');
+      const app = buildApp({ ...ctx.deps, prisma: logged });
+      const res = await request(app).get('/api/projects?pageSize=50');
+      expect(res.body.data.length).toBeGreaterThan(5);
+      await new Promise(r => setTimeout(r, 50));
+      expect(seen.filter(q => /UsageEvent/i.test(q))).toHaveLength(1);
+    } finally { await logged.$disconnect(); }
   });
 });
 

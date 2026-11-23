@@ -2,10 +2,11 @@
  * Instrumentation SDK implementation (Prisma + JSONL).
  *
  * Every record* call: (1) inserts a typed row (where a typed table exists), (2) mirrors an ExecutionLog row,
- * (3) appends the ExecutionLogDto as one JSON line to `${logDir}/execution-YYYY-MM-DD.jsonl` (date = event ts, UTC).
+ * (3) appends the ExecutionLogDto as one JSON line to `${logDir}/execution-YYYY-MM-DD.jsonl` (date = event ts, UTC; rolls over to
+ * `execution-YYYY-MM-DD.N.jsonl` at 50MB).
  *
  * Resilience: instrumentation must never crash the host app. Every DB / file write is wrapped; failures are reported with
- * console.error and the optional `onError(error, context)` hook (used by tests) and then swallowed. Handles keep working
+ * a rate-limited console.error (non-test runs) and the optional `onError(error, context)` hook (called every time) and then swallowed. Handles keep working
  * even if their rows could not be written (ids are generated client-side). DB and file writes are independent: a DB failure
  * still produces the JSONL line and vice versa.
  *
@@ -28,13 +29,22 @@ import {
 } from '../../contracts/instrumentation';
 import { newSpanId, newTraceId } from '../../utils/ids';
 import { safeStringify } from '../../utils/serialize';
-import { appendJsonl } from './jsonl';
+import { createJsonlWriter } from './jsonl';
 import { boundText, sanitizeAttributes } from './sanitize';
 
 export interface InstrumentationOptions {
   logDir: string;
-  /** Called (in addition to console.error) whenever an instrumentation write fails. Mainly for tests. */
+  /** Called on EVERY instrumentation write failure (not rate limited). Mainly for tests / custom alerting. */
   onError?: (error: unknown, context: string) => void;
+  /** Max size of one JSONL day file before rolling over to `execution-<day>.<n>.jsonl` (default 50MB). */
+  maxLogFileBytes?: number;
+  /**
+   * Print write failures to console.error (default: true except when NODE_ENV=test or VITEST is set).
+   * Rate limited: at most one line per failure context per `errorLogIntervalMs`, with a count of suppressed repeats.
+   */
+  consoleErrors?: boolean;
+  /** Console rate-limit window per failure context (default 30000 ms). */
+  errorLogIntervalMs?: number;
 }
 
 const newId = () => `c${randomBytes(12).toString('hex')}`;
@@ -63,9 +73,23 @@ interface LogEntry extends Correlation {
 
 export function createInstrumentation(prisma: PrismaClient, opts: InstrumentationOptions): Instrumentation {
   const { logDir } = opts;
+  const jsonl = createJsonlWriter(logDir, opts.maxLogFileBytes);
+  const consoleErrors = opts.consoleErrors ?? !(process.env.NODE_ENV === 'test' || process.env.VITEST);
+  const windowMs = opts.errorLogIntervalMs ?? 30_000;
+  const lastPrinted = new Map<string, { at: number; suppressed: number }>();
 
   function reportFailure(context: string, e: unknown) {
-    console.error(`[instrumentation] ${context} failed:`, e instanceof Error ? e.message : e);
+    if (consoleErrors) {
+      const now = Date.now();
+      const st = lastPrinted.get(context);
+      if (!st || now - st.at >= windowMs) {
+        const extra = st && st.suppressed > 0 ? ` (+${st.suppressed} similar suppressed in the last ${Math.round((now - st.at) / 1000)}s)` : '';
+        console.error(`[instrumentation] ${context} failed: ${e instanceof Error ? e.message : String(e)}${extra}`);
+        lastPrinted.set(context, { at: now, suppressed: 0 });
+      } else {
+        st.suppressed++;
+      }
+    }
     try { opts.onError?.(e, context); } catch { /* hook errors are ignored */ }
   }
   async function db(context: string, fn: () => Promise<unknown>): Promise<boolean> {
@@ -77,7 +101,7 @@ export function createInstrumentation(prisma: PrismaClient, opts: Instrumentatio
     const ts = e.ts ?? new Date();
     const dto: ExecutionLogDto = {
       id: newId(), ts: ts.toISOString(), level: e.level, eventType: e.eventType, category: e.category,
-      operation: boundText(e.operation, 300) ?? '', status: e.status, source: e.source,
+      operation: (boundText(e.operation, 300) ?? '').replace(/\s*\n+\s*/g, ' '), status: e.status, source: e.source,
       traceId: e.traceId ?? null, spanId: e.spanId ?? null, requestId: e.requestId ?? null, projectId: e.projectId ?? null,
       durationMs: e.durationMs ?? null, message: boundText(e.message, MAX_MSG) ?? '',
       attributes: e.attributes ?? {}, errorCategory: e.errorCategory ?? null,
@@ -91,7 +115,7 @@ export function createInstrumentation(prisma: PrismaClient, opts: Instrumentatio
         errorCategory: dto.errorCategory, errorMessage: dto.errorMessage, stack: dto.stack,
       },
     }));
-    try { appendJsonl(logDir, dto); } catch (err) { reportFailure('jsonl.append', err); }
+    try { jsonl.append(dto); } catch (err) { reportFailure('jsonl.append', err); }
     return dto;
   }
 

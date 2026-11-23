@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { dateQuery, paginationQuery } from '../../utils/http';
+import { dateQuery } from '../../utils/http';
+import { boundedPagination } from './pagination';
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -28,7 +29,7 @@ export const usageFilterQuery = z.object({
 });
 export type UsageFilters = z.infer<typeof usageFilterQuery>;
 
-export const usageListQuery = paginationQuery.extend({
+export const usageListQuery = boundedPagination.extend({
   sort: z.enum(['createdAt', 'costUsd', 'durationMs']).default('createdAt'),
   order: z.enum(['asc', 'desc']).default('desc'),
 });

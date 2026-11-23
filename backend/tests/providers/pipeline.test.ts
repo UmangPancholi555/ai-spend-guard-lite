@@ -36,11 +36,19 @@ describe('executeMockRequest: instrumentation order and trace shape', () => {
     expect(res.status).toBe('SUCCESS');
     expect(instr.names()).toEqual([
       'startTrace',
+      // real context manager: CREATED v1
+      'span.start:context.created', 'recordContext', 'span.end:context.created',
+      // real tool calls (preflight)
+      'span.start:tool.pricing.lookup', 'recordTool', 'recordTool', 'span.end:tool.pricing.lookup',
+      'span.start:tool.budget.status', 'recordTool', 'recordTool', 'span.end:tool.budget.status',
       'span.start:provider.mock', 'span.end:provider.mock',
+      'span.start:context.updated', 'recordContext', 'span.end:context.updated',
       'span.start:cost.calculate', 'span.end:cost.calculate',
       'span.start:usage.persist', 'span.end:usage.persist',
-      'recordActivity:usage.recorded',
-      'span.start:budget.evaluate', 'span.end:budget.evaluate',
+      // real event bus: publish usage.recorded -> activity subscriber
+      'span.start:bus.publish', 'recordActivity:usage.recorded', 'recordBus', 'recordBus', 'span.end:bus.publish',
+      // budget evaluation = bus request to the budget engine
+      'span.start:budget.evaluate', 'span.start:bus.request', 'recordBus', 'span.end:bus.request', 'span.end:budget.evaluate',
       'trace.end',
     ]);
     expect(instr.traces[0]).toMatchObject({ name: 'provider.request', source: 'ACTUAL', projectId, requestId: res.requestId, ended: true });
@@ -49,7 +57,8 @@ describe('executeMockRequest: instrumentation order and trace shape', () => {
     expect(prov.kind).toBe('PROVIDER');
     expect(prov.attributes.simulated).toBe(true);
     expect(prov.source).toBe('ACTUAL');
-    expect(instr.spans.map(s => s.kind)).toEqual(['PROVIDER', 'COST', 'INTERNAL', 'BUDGET']);
+    expect(instr.spans.filter(s => ['provider.mock', 'cost.calculate', 'usage.persist', 'budget.evaluate'].includes(s.name)).map(s => s.kind)).toEqual(['PROVIDER', 'COST', 'INTERNAL', 'BUDGET']);
+    expect(instr.spans.filter(s => s.kind === 'TOOL').map(s => s.name)).toEqual(['tool.pricing.lookup', 'tool.budget.status']);
     expect(res.traceId).toBe(instr.traces[0]!.traceId);
   });
 
@@ -57,15 +66,9 @@ describe('executeMockRequest: instrumentation order and trace shape', () => {
     fresh();
     const res = await executeMockRequest(deps, req({ simulateFailure: 'timeout' }), { latency: false });
     expect(res.status).toBe('FAILURE');
-    expect(instr.names()).toEqual([
-      'startTrace',
-      'span.start:provider.mock', 'span.end:provider.mock', 'recordError',
-      'span.start:cost.calculate', 'span.end:cost.calculate',
-      'span.start:usage.persist', 'span.end:usage.persist',
-      'recordActivity:request.failed',
-      'span.start:budget.evaluate', 'span.end:budget.evaluate',
-      'trace.end',
-    ]);
+    const names = instr.names();
+    const order = ['span.end:provider.mock', 'recordError', 'span.start:context.updated', 'span.start:cost.calculate', 'span.start:usage.persist', 'recordActivity:request.failed', 'span.start:budget.evaluate', 'trace.end'];
+    expect(order.map(n => names.indexOf(n)).every((i, k, arr) => i >= 0 && (k === 0 || i > arr[k - 1]!))).toBe(true);
     expect(instr.spans.find(s => s.name === 'provider.mock')!.error).toMatchObject({ category: 'TIMEOUT' });
     const end = instr.calls.find(c => c.fn === 'trace.end')!;
     expect(end.error).toBe(true);
@@ -94,7 +97,7 @@ describe('executeMockRequest: instrumentation order and trace shape', () => {
     fresh();
     const at = new Date('2026-02-01T00:00:00.000Z');
     const res = await executeMockRequest(deps, req(), { latency: false, createdAt: at });
-    const call = (deps.cost as ReturnType<typeof fakeCost>).calls[0] as any;
+    const call = (deps.cost as ReturnType<typeof fakeCost>).calls.find((c: any) => c.outputTokens > 0 || c.inputTokens > 0) as any; // (the first call is the pricing.lookup tool, 0 tokens)
     expect(call).toMatchObject({ provider: 'openai', model: 'gpt-4o-mini', inputTokens: res.usage.inputTokens, outputTokens: res.usage.outputTokens, cachedTokens: res.usage.cachedTokens, at: at.toISOString() });
   });
 });
@@ -256,7 +259,7 @@ describe('simulated agent activity', () => {
   it('simulateAgentActivity emits SIMULATED context/memory/bus/tool events correlated to the trace', async () => {
     fresh();
     const res = await executeMockRequest(deps, req({ simulateAgentActivity: true }), { latency: false });
-    const calls = instr.calls;
+    const calls = instr.calls.filter(c => c.source === 'SIMULATED' || !['recordContext', 'recordMemory', 'recordBus', 'recordTool'].includes(c.fn as string));
     const ctxs = calls.filter(c => c.fn === 'recordContext') as any[];
     expect(ctxs.map(c => c.operation)).toEqual(['CREATED', 'UPDATED', 'ADDED', 'MODIFIED']);
     expect(ctxs.map(c => c.version)).toEqual([1, 2, 3, 4]);
@@ -287,17 +290,19 @@ describe('simulated agent activity', () => {
     expect(instr.spans.filter(s => ['provider.mock', 'cost.calculate', 'usage.persist', 'budget.evaluate'].includes(s.name)).every(s => s.source === 'ACTUAL')).toBe(true);
     // agent activity comes after budget.evaluate and before trace.end
     const names = instr.names();
-    expect(names.indexOf('span.end:budget.evaluate')).toBeLessThan(names.indexOf('span.start:context.created'));
+    const simStart = instr.spans.findIndex(sp => sp.source === 'SIMULATED');
+    expect(simStart).toBeGreaterThan(instr.spans.findIndex(sp => sp.name === 'budget.evaluate'));
     expect(names[names.length - 1]).toBe('trace.end');
   });
 
   it('does not emit agent activity by default and never puts content-like keys in event metadata', async () => {
     fresh();
     await executeMockRequest(deps, req(), { latency: false });
-    expect(instr.calls.some(c => c.fn === 'recordContext' || c.fn === 'recordMemory' || c.fn === 'recordTool' || c.fn === 'recordBus')).toBe(false);
+    expect(instr.calls.some(c => c.source === 'SIMULATED')).toBe(false);
+    expect(instr.spans.some(sp => sp.source === 'SIMULATED')).toBe(false);
     fresh();
     await executeMockRequest(deps, req({ simulateAgentActivity: true }), { latency: false });
-    const blob = JSON.stringify(instr.calls.filter(c => ['recordContext', 'recordMemory', 'recordBus', 'recordTool'].includes(c.fn as string)));
+    const blob = JSON.stringify(instr.calls.filter(c => c.source === 'SIMULATED' && ['recordContext', 'recordMemory', 'recordBus', 'recordTool'].includes(c.fn as string)));
     expect(blob).not.toMatch(/"(content|prompt|text|body|message)":/);
   });
 

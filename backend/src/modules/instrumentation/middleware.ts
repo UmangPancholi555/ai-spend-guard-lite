@@ -2,6 +2,7 @@ import type { Request, RequestHandler, Response } from 'express';
 import { performance } from 'node:perf_hooks';
 import type { Instrumentation } from '../../contracts/instrumentation';
 import { newRequestId } from '../../utils/ids';
+import { runtimeRegistry } from '../runtime/registry';
 
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
 
@@ -19,10 +20,13 @@ function routeOf(req: Request, base: string): string {
  *      level INFO | WARN (4xx) | ERROR (5xx)
  *  - logs every non-GET/HEAD/OPTIONS request and any request with status >= 400; successful GET/HEAD/OPTIONS are NOT logged
  *    (avoids flooding); /api/health is never logged.
- *  - does NOT create traces (provider pipeline / simulators own those); sets nothing on res.locals.traceId.
+ *  - does NOT create traces (provider pipeline / tools / simulators own those). Handlers that start a trace set res.locals.traceId
+ *    (+ res.locals.projectId): the request log row then carries traceId, and the trace attributes + usage metadata carry
+ *    `httpRequestId` (= res.locals.requestId) so HTTP log line <-> trace <-> usage event are joinable.
  *  - never throws / never blocks the response.
  */
 export function requestLifecycleMiddleware(instr: Instrumentation): RequestHandler {
+  runtimeRegistry.register({ kind: 'request', name: 'Request lifecycle middleware', description: 'Real: API request middleware logs every state-changing / failed request (ACTUAL); handlers that start a trace set res.locals.traceId so the HTTP log line joins to its trace and usage event.' });
   return (req, res, next) => {
     const start = performance.now();
     const base = req.baseUrl ?? '';

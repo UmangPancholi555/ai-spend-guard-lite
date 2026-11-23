@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
 import { dateQuery } from '../../utils/http';
+import { AppError } from '../../utils/errors';
 import {
   toActivityDto, toAlertDto, toBusDto, toContextDto, toLogDto, toMemoryDto, toTaskDto, toToolDto, toTraceDto,
 } from './mappers';
@@ -51,7 +52,9 @@ const logsFilter = z.object({
 /** eventType: exact, comma-separated list, or trailing `*` prefix match (e.g. `memory.injection.*`). */
 function eventTypeWhere(v?: string) {
   if (!v) return undefined;
-  const ors = v.split(',').map(s => s.trim()).filter(Boolean).map(s => (s.endsWith('*') ? { eventType: { startsWith: s.slice(0, -1) } } : { eventType: s }));
+  const parts = v.split(',').map(s => s.trim()).filter(Boolean);
+  if (parts.length > 20) throw new AppError(400, 'VALIDATION_ERROR', 'eventType accepts at most 20 comma-separated values');
+  const ors = parts.map(s => (s.endsWith('*') ? { eventType: { startsWith: s.slice(0, -1) } } : { eventType: s }));
   return ors.length ? { OR: ors } : undefined;
 }
 const logsWhere = (q: z.infer<typeof logsFilter>) => and(

@@ -12,6 +12,7 @@ export const mockProviderRequestSchema = z.object({
   temperature: z.number().min(0).max(2).optional(),
   simulateFailure: simulatedFailureSchema.default('none'),
   simulateAgentActivity: z.boolean().default(false),
+  injectMemory: z.boolean().optional(),
 });
 export type MockProviderRequestInput = z.input<typeof mockProviderRequestSchema>;
 

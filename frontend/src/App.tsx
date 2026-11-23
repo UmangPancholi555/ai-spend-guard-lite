@@ -14,10 +14,19 @@ import ErrorsPage from './pages/ErrorsPage';
 import LogsPage from './pages/LogsPage';
 import SettingsPage from './pages/SettingsPage';
 import PricingPage from './pages/PricingPage';
+import LoginPage from './pages/LoginPage';
+import SetupPage from './pages/SetupPage';
+import AccountPage from './pages/AccountPage';
+import { AuthProvider } from './components/auth/AuthProvider';
+import RequireAuth from './components/auth/RequireAuth';
 
 export default function App() {
   return (
+    <AuthProvider>
     <Routes>
+      <Route path="login" element={<LoginPage />} />
+      <Route path="setup" element={<SetupPage />} />
+      <Route element={<RequireAuth />}>
       <Route element={<Layout />}>
         <Route index element={<DashboardPage />} />
         <Route path="projects" element={<ProjectsPage />} />
@@ -33,8 +42,11 @@ export default function App() {
         <Route path="errors" element={<ErrorsPage />} />
         <Route path="logs" element={<LogsPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="account" element={<AccountPage />} />
         <Route path="*" element={<div className="p-6">Page not found</div>} />
       </Route>
+      </Route>
     </Routes>
+    </AuthProvider>
   );
 }

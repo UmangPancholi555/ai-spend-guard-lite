@@ -8,9 +8,11 @@ import { agentRunSchema, mockProviderRequestSchema, seedRequestSchema } from './
 import { runSeed } from './simulator/seed';
 import { runAgentSimulation } from './simulator/agentRun';
 import { SIM_LABEL } from './mock';
+import { createRuntimeRouter } from '../runtime';
 
 export function createProvidersRouter(deps: AppDeps): Router {
   const router = Router();
+  router.use(createRuntimeRouter(deps)); // real memory store + tools routes (runtime module)
 
   router.get('/providers', ah(async (_req, res) => {
     const providers = await deps.prisma.provider.findMany({ orderBy: { key: 'asc' }, include: { models: { orderBy: { name: 'asc' } } } });
@@ -23,7 +25,9 @@ export function createProvidersRouter(deps: AppDeps): Router {
 
   router.post('/providers/requests', ah(async (req, res) => {
     const input = parse(mockProviderRequestSchema, req.body);
-    const data = await executeMockRequest(deps, input);
+    const locals = res.locals as { traceId?: string; projectId?: string; requestId?: string };
+    locals.projectId = input.projectId;
+    const data = await executeMockRequest(deps, input, { httpRequestId: locals.requestId, onTrace: id => { locals.traceId = id; } });
     res.status(201).json({ data });
   }));
 
@@ -35,7 +39,9 @@ export function createProvidersRouter(deps: AppDeps): Router {
 
   router.post('/simulations/agent-run', ah(async (req, res) => {
     const input = parse(agentRunSchema, req.body);
-    const data = await runAgentSimulation(deps, input);
+    const locals = res.locals as { traceId?: string; projectId?: string; requestId?: string };
+    locals.projectId = input.projectId;
+    const data = await runAgentSimulation(deps, input, { httpRequestId: locals.requestId, onTrace: id => { locals.traceId = id; } });
     res.status(201).json({ data });
   }));
 

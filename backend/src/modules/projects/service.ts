@@ -4,7 +4,7 @@ import type { ProjectUsageSummary, ProjectWithUsage } from '../../../../shared/t
 import { conflict, notFound } from '../../utils/errors';
 import { picoToUsd } from '../../utils/money';
 import { toProjectDto } from './mappers';
-import { hasLikeWildcard, projectIdsByName } from '../usage/search';
+import { hasLikeWildcard, projectIdsBySearch } from '../usage/search';
 
 const EMPTY_USAGE: ProjectUsageSummary = {
   requests: 0, successes: 0, failures: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0,
@@ -90,8 +90,10 @@ export function createProjectsService(deps: AppDeps) {
       if (q.status) where.status = q.status;
       if (!q.includeTest) where.isTest = false;
       if (q.search) {
-        where.name = hasLikeWildcard(q.search) ? undefined : { contains: q.search };
-        if (hasLikeWildcard(q.search)) where.id = { in: await projectIdsByName(prisma, q.search) };
+        // name OR description; wildcard characters typed by the user are matched literally
+        where.OR = hasLikeWildcard(q.search)
+          ? [{ id: { in: await projectIdsBySearch(prisma, q.search) } }]
+          : [{ name: { contains: q.search } }, { description: { contains: q.search } }];
       }
       const [total, rows] = await Promise.all([
         prisma.project.count({ where }),

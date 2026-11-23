@@ -21,6 +21,6 @@ describe('read-side routers are mounted in the real app', () => {
     expect(t.body.error.code).toBe('NOT_FOUND');
     const s = await request(ctx.app).get('/api/observability/sources');
     expect(s.status).toBe(200);
-    expect(s.body.data).toHaveLength(6);
+    expect(s.body.data).toHaveLength(7);
   });
 });

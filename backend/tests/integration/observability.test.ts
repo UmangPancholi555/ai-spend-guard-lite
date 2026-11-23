@@ -10,7 +10,7 @@ afterAll(async () => { await ctx.close(); cleanupTestDir(ctx.dir); });
 const SIM_KINDS = ['MEMORY', 'BUS', 'TOOL', 'CONTEXT'];
 
 describe('simulated agent activity correlation & labelling', () => {
-  it('timeline of a request with simulateAgentActivity correlates context/memory/bus/tool events, all SIMULATED', async () => {
+  it('timeline of a request with simulateAgentActivity correlates SIMULATED context/memory/bus/tool events next to the REAL (ACTUAL) runtime events', async () => {
     const res = await pay(ctx, { projectId: proj.id, prompt: 'agent activity', simulateAgentActivity: true });
     const { trace, spans, timeline } = (await api(ctx).get(`/api/traces/${res.traceId}`)).body.data;
     expect(trace.source).toBe('ACTUAL');
@@ -22,17 +22,23 @@ describe('simulated agent activity correlation & labelling', () => {
     for (const s of ['execution.started', 'context.initialized', 'memory.injection.started', 'memory.injection.completed', 'bus.operation',
       'tool.call.initiated', 'tool.call.completed', 'tool.call.failed', 'response.generated', 'execution.completed']) expect(steps.has(s), s).toBe(true);
 
-    // every memory/bus/tool/context timeline entry is SIMULATED; actual request lifecycle entries are ACTUAL
+    // memory/bus/tool/context timeline entries come from BOTH the real runtime (ACTUAL: context manager, tool executor, event bus) and the
+    // simulator (SIMULATED); memory has only simulated entries here (the project has no memory items, so nothing real is injected)
+    for (const kind of ['tool', 'context', 'bus']) {
+      const srcs = new Set(timeline.filter((e: any) => e.refKind === kind).map((e: any) => e.source));
+      expect([...srcs].sort(), kind).toEqual(['ACTUAL', 'SIMULATED']);
+    }
+    expect(new Set(timeline.filter((e: any) => e.refKind === 'memory').map((e: any) => e.source))).toEqual(new Set(['SIMULATED']));
     for (const e of timeline) {
-      if (['memory', 'bus', 'tool', 'context'].includes(e.refKind)) expect(e.source, `${e.step}`).toBe('SIMULATED');
       if (e.step === 'execution.started' || e.step === 'execution.completed' || e.step === 'response.generated') expect(e.source).toBe('ACTUAL');
     }
-    // simulated spans are SIMULATED and are children of the ACTUAL root; actual spans stay ACTUAL
+    // simulated spans are SIMULATED, marked simulated and children of the ACTUAL root; real runtime spans are ACTUAL and never marked simulated
     const root = spans.find((s: any) => s.parentSpanId === null);
     for (const s of spans) {
-      if (SIM_KINDS.includes(s.kind)) { expect(s.source, s.name).toBe('SIMULATED'); expect(s.parentSpanId).toBe(root.spanId); expect(s.attributes.simulated).toBe(true); }
-      else expect(s.source, s.name).toBe('ACTUAL');
+      if (s.source === 'SIMULATED') { expect(SIM_KINDS, s.name).toContain(s.kind); expect(s.parentSpanId).toBe(root.spanId); expect(s.attributes.simulated).toBe(true); }
+      else { expect(s.source, s.name).toBe('ACTUAL'); if (SIM_KINDS.includes(s.kind)) expect(s.attributes.simulated, s.name).toBeUndefined(); }
     }
+    expect(spans.some((s: any) => s.source === 'ACTUAL' && s.kind === 'TOOL')).toBe(true);
     // ordering by ts
     const ts = timeline.map((e: any) => Date.parse(e.ts));
     expect([...ts].sort((a, b) => a - b)).toEqual(ts);
@@ -43,21 +49,23 @@ describe('simulated agent activity correlation & labelling', () => {
 
     // per-event endpoints (by trace) agree with the timeline & are SIMULATED
     for (const [url, kind] of [['memory-events', 'memory'], ['bus-events', 'bus'], ['tool-events', 'tool'], ['context-events', 'context']] as const) {
-      const rows = await listAll<any>(ctx, `/api/observability/${url}?traceId=${res.traceId}`);
+      const rows = await listAll<any>(ctx, `/api/observability/${url}?traceId=${res.traceId}&source=SIMULATED`);
       expect(rows.length, url).toBeGreaterThan(0);
       expect(rows.every(r => r.source === 'SIMULATED'), `${url} all SIMULATED`).toBe(true);
       expect(rows.every(r => r.traceId === res.traceId)).toBe(true);
       // tool calls appear twice in the timeline (initiated + completed/failed); every other kind is 1:1
-      const expected = timeline.filter((e: any) => e.refKind === kind && (kind !== 'tool' || e.step === 'tool.call.initiated')).length;
+      const expected = timeline.filter((e: any) => e.refKind === kind && e.source === 'SIMULATED' && (kind !== 'tool' || e.step === 'tool.call.initiated')).length;
       expect(rows.length, url).toBe(expected);
       expect(rows.every(r => spans.some((s: any) => s.spanId === r.spanId))).toBe(true);
     }
     // logs for those events are SIMULATED too and mirrored to JSONL
     const logs = await listAll<any>(ctx, `/api/logs?traceId=${res.traceId}`);
-    for (const l of logs.filter(l => ['MEMORY', 'BUS', 'TOOL', 'CONTEXT'].includes(l.category))) expect(l.source).toBe('SIMULATED');
+    const simSpanIds = new Set(spans.filter((sp: any) => sp.source === 'SIMULATED').map((sp: any) => sp.spanId));
+    for (const l of logs.filter(l => ['MEMORY', 'BUS', 'TOOL', 'CONTEXT'].includes(l.category) && l.spanId && simSpanIds.has(l.spanId))) expect(l.source).toBe('SIMULATED');
+    expect(logs.some(l => ['BUS', 'TOOL', 'CONTEXT'].includes(l.category) && l.source === 'ACTUAL')).toBe(true);
     const jsonl = readJsonl(ctx).filter(l => l.traceId === res.traceId);
     expect(jsonl.length).toBe(logs.length);
-    for (const l of jsonl.filter(l => ['MEMORY', 'BUS', 'TOOL', 'CONTEXT'].includes(l.category))) expect(l.source).toBe('SIMULATED');
+    for (const l of jsonl.filter(l => ['MEMORY', 'BUS', 'TOOL', 'CONTEXT'].includes(l.category) && l.spanId && simSpanIds.has(l.spanId))) expect(l.source).toBe('SIMULATED');
   });
 
   it('failure modes with agent activity produce FAILURE timeline entries and error logs with matching categories', async () => {
@@ -82,30 +90,26 @@ describe('simulated agent activity correlation & labelling', () => {
     expect(seen.size).toBeGreaterThanOrEqual(2);
   });
 
-  it('no ACTUAL memory/tool/context events exist and /observability/sources never claims CONNECTED for them', async () => {
-    expect(await ctx.prisma.memoryEvent.count({ where: { source: 'ACTUAL' } })).toBe(0);
-    expect(await ctx.prisma.toolCallEvent.count({ where: { source: 'ACTUAL' } })).toBe(0);
-    expect(await ctx.prisma.contextEvent.count({ where: { source: 'ACTUAL' } })).toBe(0);
-    expect(await ctx.prisma.memoryEvent.count()).toBeGreaterThan(0);
-
+  it('sources: memory/tool/context/bus are CONNECTED only because real components are registered; SIMULATED counts stay separate', async () => {
     const src = (await api(ctx).get('/api/observability/sources')).body.data as any[];
     const by = Object.fromEntries(src.map(s => [s.kind, s]));
-    for (const k of ['memory', 'tool', 'context']) {
-      expect(by[k].status, k).toBe('SIMULATED_ONLY');
-      expect(by[k].actualEvents).toBe(0);
-      expect(by[k].simulatedEvents).toBeGreaterThan(0);
-    }
-    // counts are derived from DB, not hard-coded
-    // memory is counted per injection operation (STARTED+COMPLETED rows share one operationId)
-    const ops = await ctx.prisma.memoryEvent.findMany({ where: { source: 'SIMULATED' }, distinct: ['operationId'], select: { operationId: true } });
-    expect(by.memory.simulatedEvents).toBe(ops.length);
+    for (const k of ['request', 'memory', 'bus', 'tool', 'context', 'error']) expect(by[k].status, k).toBe('CONNECTED');
+    // counts are derived from the DB, split by source
+    expect(by.tool.actualEvents).toBe(await ctx.prisma.toolCallEvent.count({ where: { source: 'ACTUAL' } }));
     expect(by.tool.simulatedEvents).toBe(await ctx.prisma.toolCallEvent.count({ where: { source: 'SIMULATED' } }));
+    expect(by.context.actualEvents).toBe(await ctx.prisma.contextEvent.count({ where: { source: 'ACTUAL' } }));
     expect(by.context.simulatedEvents).toBe(await ctx.prisma.contextEvent.count({ where: { source: 'SIMULATED' } }));
-    expect(by.request.status).toBe('CONNECTED');
-    expect(by.error.status).toBe('CONNECTED');
-    // bus: CONNECTED iff real (ACTUAL) bus events exist
-    expect(by.bus.status).toBe(by.bus.actualEvents > 0 ? 'CONNECTED' : 'SIMULATED_ONLY');
     expect(by.bus.actualEvents).toBe(await ctx.prisma.busEvent.count({ where: { source: 'ACTUAL' } }));
+    expect(by.bus.simulatedEvents).toBe(await ctx.prisma.busEvent.count({ where: { source: 'SIMULATED' } }));
+    // memory is counted per injection operation; simulated ones exist, real ones only when a project has memory items
+    const simOps = await ctx.prisma.memoryEvent.findMany({ where: { source: 'SIMULATED' }, distinct: ['operationId'], select: { operationId: true } });
+    expect(by.memory.simulatedEvents).toBe(simOps.length);
+    expect(by.tool.actualEvents).toBeGreaterThan(0);
+    expect(by.tool.simulatedEvents).toBeGreaterThan(0);
+    // the DEMO simulator is its own entry and never CONNECTED
+    expect(by.simulator.status).toBe('SIMULATED_ONLY');
+    expect(by.simulator.actualEvents).toBe(0);
+    expect(by.simulator.simulatedEvents).toBe(by.memory.simulatedEvents + by.bus.simulatedEvents + by.tool.simulatedEvents + by.context.simulatedEvents);
   });
 
   it('overview totals split actual vs simulated and agree with the event tables', async () => {
@@ -148,7 +152,8 @@ describe('simulated agent activity correlation & labelling', () => {
     const fresh = await createTestApp();
     try {
       const src = (await api(fresh).get('/api/observability/sources')).body.data as any[];
-      for (const k of ['memory', 'tool', 'context']) expect(src.find(s => s.kind === k).status).toBe('UNAVAILABLE');
+      // real components are registered (CONNECTED even with zero events); nothing is counted
+      for (const k of ['memory', 'tool', 'context', 'bus']) expect(src.find(s => s.kind === k)).toMatchObject({ status: 'CONNECTED', actualEvents: 0, simulatedEvents: 0 });
       const dash = (await api(fresh).get('/api/dashboard')).body.data;
       expect(dash.totals.requests).toBe(0);
       expect(dash.totals.spendUsd).toBe('0.000000000000');
