@@ -24,6 +24,17 @@ export interface AppConfig {
   databaseUrl: string;
   logDir: string;
   frontendDist: string | null;
+  auth: {
+    /** AUTH_ENABLED=false disables login (tests / explicit opt-out only; the server logs a loud warning) */
+    enabled: boolean;
+    sessionTtlHours: number;
+    /** set Secure on cookies (auto true when COOKIE_SECURE=true) */
+    cookieSecure: boolean;
+  };
+  security: {
+    /** requests per minute per IP for /api; 0 disables */
+    rateLimitPerMinute: number;
+  };
 }
 
 export interface AppDeps {

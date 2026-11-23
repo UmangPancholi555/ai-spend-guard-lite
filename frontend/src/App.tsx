@@ -13,6 +13,7 @@ import ObservabilityPage from './pages/ObservabilityPage';
 import ErrorsPage from './pages/ErrorsPage';
 import LogsPage from './pages/LogsPage';
 import SettingsPage from './pages/SettingsPage';
+import PricingPage from './pages/PricingPage';
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="projects/:id" element={<ProjectDetailPage />} />
         <Route path="usage" element={<UsagePage />} />
         <Route path="simulator" element={<SimulatorPage />} />
+        <Route path="pricing" element={<PricingPage />} />
         <Route path="budgets" element={<BudgetsPage />} />
         <Route path="activity" element={<ActivityPage />} />
         <Route path="traces" element={<TracesPage />} />

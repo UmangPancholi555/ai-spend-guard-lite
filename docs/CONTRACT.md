@@ -107,3 +107,17 @@ JSONL line shape = `ExecutionLogDto`.
 | docs (later) | `docs/*.md` (except CONTRACT.md), `README.md` |
 Only commit nothing: the coordinator commits. Do not run `git` commands that change state.
 Frontend agents: backend modules are being written concurrently; code against this contract and `shared/types.ts`. To test against a live API, run the real backend once endpoints exist (`npm run dev -w backend`), and skip gracefully if an endpoint still 404s.
+
+---
+# Wave 2 addendum (production-readiness)
+Coordinator pre-wired: schema models `User`, `Session`, `ProjectMemoryItem` (migration `auth_and_memory`); `AppConfig.auth/security`; `middleware/security.ts` (headers + rate limit); `app.ts` mounts `createAuthRouter` then `requireAuth` before every other router; `PricingPage` stub + `/pricing` route + nav entry.
+Test helper: `createTestApp({auth?: boolean})` — legacy suites run with auth OFF; auth-specific suites pass `{auth:true}`.
+New shared type files (each owner creates its own, do not edit `shared/types.ts` except where stated): `shared/auth.ts` (auth agent), `shared/runtime.ts` (runtime agent).
+
+| Agent | Owns (wave 2) |
+|---|---|
+| auth | `backend/src/modules/auth/**`, `backend/tests/auth/**`, `shared/auth.ts`, `frontend/src/pages/{Login,Setup,Account}Page.tsx`, `frontend/src/components/auth/**`, `frontend/src/{App.tsx,components/Layout.tsx,lib/api.ts}` (auth integration only), `.env.example`, `backend/src/utils/password.ts`, `backend/src/server.ts` (startup warning if auth disabled) |
+| runtime | `backend/src/modules/runtime/**`, `backend/tests/runtime/**`, `shared/runtime.ts`, `backend/src/modules/providers/pipeline.ts` (+simulator only if needed), `backend/src/modules/observability/sources.ts`, `backend/src/modules/instrumentation/middleware.ts` (request-id/trace join), frontend `components/memory/**` + minimal edit of `pages/ProjectDetailPage.tsx` |
+| pricing-ui | `frontend/src/pages/PricingPage.tsx`, `frontend/src/components/pricing/**`; backend `modules/cost/**` only if an endpoint is missing |
+| core-api | `modules/{projects,usage,dashboard}/**` fixes |
+| obs-core | `modules/{instrumentation,logging}/**` (retention scheduler) — coordinate with runtime on `instrumentation/middleware.ts` (runtime owns that one file) |

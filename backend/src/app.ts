@@ -16,6 +16,8 @@ import { createTracesRouter } from './modules/traces';
 import { createObservabilityRouter } from './modules/observability';
 import { createLoggingRouter } from './modules/logging';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { securityHeaders, rateLimiter } from './middleware/security';
+import { createAuthRouter, requireAuth } from './modules/auth';
 
 export function createDeps(prisma: PrismaClient, config: AppConfig): AppDeps {
   const instr = createInstrumentation(prisma, { logDir: config.logDir });
@@ -27,6 +29,7 @@ export function createDeps(prisma: PrismaClient, config: AppConfig): AppDeps {
 export function buildApp(deps: AppDeps) {
   const app = express();
   app.disable('x-powered-by');
+  app.use(securityHeaders());
   app.use(cors({ origin: [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/] }));
   // CSRF guard: state-changing /api requests carrying a foreign Origin are rejected (blocks cross-site form POSTs).
   app.use('/api', (req, res, next) => {
@@ -38,6 +41,7 @@ export function buildApp(deps: AppDeps) {
     next();
   });
   app.use(express.json({ limit: '1mb' }));
+  app.use('/api', rateLimiter(deps.config.security.rateLimitPerMinute));
   app.use('/api', requestLifecycleMiddleware(deps.instr));
 
   app.get('/api/health', (_req, res) => {
@@ -45,6 +49,8 @@ export function buildApp(deps: AppDeps) {
   });
 
   const api = express.Router();
+  api.use(createAuthRouter(deps));
+  api.use(requireAuth(deps));
   api.use(createDashboardRouter(deps));
   api.use(createProjectsRouter(deps));
   api.use(createProvidersRouter(deps));

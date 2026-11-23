@@ -365,3 +365,53 @@ model AppSetting {
   value     String // JSON-encoded
   updatedAt DateTime @updatedAt
 }
+
+// ---------------------------------------------------------------- Auth
+model User {
+  id             String    @id @default(cuid())
+  username       String    @unique // stored lowercase
+  passwordHash   String // scrypt$N$r$p$saltB64$hashB64 - never the password
+  role           String    @default("ADMIN") // ADMIN | VIEWER
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  sessions Session[]
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique // sha256 of the opaque cookie token
+  csrfHash   String // sha256 of the CSRF token handed to the SPA
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  expiresAt  DateTime
+  userAgent  String?
+  ip         String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------- Runtime (real in-app memory store)
+// Project memory items are real app data injected into the mock request context by the pipeline.
+// CONTENT is stored here (it is the user's data) but is NEVER written to logs/spans/events: only counts, sizes, token estimates, hashes.
+model ProjectMemoryItem {
+  id              String   @id @default(cuid())
+  projectId       String
+  title           String
+  category        String // e.g. "instructions" | "preferences" | "facts"
+  content         String
+  enabled         Boolean  @default(true)
+  sizeBytes       Int
+  estimatedTokens Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([projectId, enabled])
+}

@@ -20,6 +20,12 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     databaseUrl: process.env.DATABASE_URL ?? 'file:./spendguard.db',
     logDir: path.resolve(REPO_ROOT, process.env.LOG_DIR ?? './data/logs'),
     frontendDist: fs.existsSync(dist) ? dist : null,
+    auth: {
+      enabled: (process.env.AUTH_ENABLED ?? 'true').toLowerCase() !== 'false',
+      sessionTtlHours: Number(process.env.SESSION_TTL_HOURS ?? 12),
+      cookieSecure: (process.env.COOKIE_SECURE ?? 'false').toLowerCase() === 'true',
+    },
+    security: { rateLimitPerMinute: Number(process.env.RATE_LIMIT_PER_MINUTE ?? 600) },
     ...overrides,
   };
 }

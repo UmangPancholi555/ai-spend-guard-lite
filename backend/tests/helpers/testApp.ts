@@ -18,7 +18,7 @@ export interface TestCtx {
 }
 
 /** Creates an isolated temp SQLite DB (all migrations applied, catalog seeded) and a fully wired Express app. */
-export async function createTestApp(existing?: { dir: string }): Promise<TestCtx> {
+export async function createTestApp(existing?: { dir?: string; auth?: boolean }): Promise<TestCtx> {
   const dir = existing?.dir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'spendguard-test-'));
   const dbPath = path.join(dir, 'test.db');
   const databaseUrl = `file:${dbPath}`;
@@ -29,13 +29,16 @@ export async function createTestApp(existing?: { dir: string }): Promise<TestCtx
   }
   const prisma = createPrisma(databaseUrl);
   await seedCatalog(prisma);
-  const config = loadConfig({ databaseUrl, logDir: path.join(dir, 'logs'), frontendDist: null });
+  const config = loadConfig({ databaseUrl, logDir: path.join(dir, 'logs'), frontendDist: null,
+    // legacy suites run with auth OFF; pass { auth: true } for auth-specific suites. Rate limiting off in tests.
+    auth: { enabled: existing?.auth ?? false, sessionTtlHours: 12, cookieSecure: false },
+    security: { rateLimitPerMinute: 0 } });
   fs.mkdirSync(config.logDir, { recursive: true });
   const deps = createDeps(prisma, config);
   const app = buildApp(deps);
   const ctx: TestCtx = {
     dir, dbPath, databaseUrl, prisma, deps, app,
-    restart: async () => { await prisma.$disconnect(); return createTestApp({ dir }); },
+    restart: async () => { await prisma.$disconnect(); return createTestApp({ dir, auth: existing?.auth }); },
     close: async () => { await prisma.$disconnect(); },
   };
   return ctx;
