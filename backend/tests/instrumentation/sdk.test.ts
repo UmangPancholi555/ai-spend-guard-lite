@@ -337,3 +337,25 @@ describe('persistence across restart', () => {
     ctx = await (async () => { const { createTestApp: c } = await import('../helpers/testApp'); return c({ dir: ctx.dir }); })();
   });
 });
+
+describe('flush()', () => {
+  const entry = (operation: string) => ({ level: 'INFO' as const, eventType: 'flush.test', category: 'SYSTEM' as const, operation, status: 'INFO' as const, source: 'ACTUAL' as const, message: 'm' });
+
+  it('waits for un-awaited log() calls to reach both the DB and the JSONL file', async () => {
+    const dir = path.join(ctx.dir, 'flush-logs');
+    const instr = createInstrumentation(ctx.prisma, { logDir: dir });
+    for (let i = 0; i < 5; i++) void instr.log(entry('flush.unawaited'));
+    await instr.flush();
+    expect(await ctx.prisma.executionLog.count({ where: { operation: 'flush.unawaited' } })).toBe(5);
+    expect(readJsonl(dir).filter(l => l.operation === 'flush.unawaited')).toHaveLength(5);
+  });
+
+  it('writes buffered JSONL lines to disk', async () => {
+    const dir = path.join(ctx.dir, 'flush-buffered-logs');
+    const instr = createInstrumentation(ctx.prisma, { logDir: dir, jsonlFlushMs: 10_000 });
+    await instr.log(entry('flush.buffered'));
+    expect(readJsonl(dir)).toHaveLength(0);
+    await instr.flush();
+    expect(readJsonl(dir).filter(l => l.operation === 'flush.buffered')).toHaveLength(1);
+  });
+});

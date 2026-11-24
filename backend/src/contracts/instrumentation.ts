@@ -95,6 +95,8 @@ export interface Instrumentation {
   recordActivity(i: ActivityInput): Promise<void>;
   recordError(i: ErrorRecordInput): Promise<void>;
   log(i: LogInput): Promise<void>;
+  /** Resolves once every log entry started so far (including un-awaited ones) is in the DB and on disk. Never rejects. */
+  flush(): Promise<void>;
   /** background task lifecycle (persisted in BackgroundTask) */
   startTask(input: { name: string; kind: TaskKind; source: Source; traceId?: string }): Promise<TaskHandle>;
   /** Convenience: run fn inside a span, auto end/ error. */

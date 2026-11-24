@@ -90,6 +90,7 @@ export function recordingInstr(): RecordingInstr {
     recordActivity: async i => { calls.push({ fn: 'recordActivity', ...i }); },
     recordError: async i => { calls.push({ fn: 'recordError', ...i }); },
     log: async i => { calls.push({ fn: 'log', ...i }); },
+    flush: async () => {},
     startTask: async i => {
       const t = { name: i.name, kind: i.kind, source: i.source, status: 'RUNNING' } as RecordingInstr['tasks'][number];
       tasks.push(t);

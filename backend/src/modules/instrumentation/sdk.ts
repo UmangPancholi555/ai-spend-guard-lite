@@ -106,8 +106,20 @@ export function createInstrumentation(prisma: PrismaClient, opts: Instrumentatio
     try { await fn(); return true; } catch (e) { reportFailure(context, e); return false; }
   }
 
+  // in-flight emits, so flush() can wait for log calls nobody awaited (e.g. the request 'finish' log)
+  const pending = new Set<Promise<ExecutionLogDto>>();
   /** Mirror into ExecutionLog + JSONL. Never throws. */
-  async function emit(e: LogEntry): Promise<ExecutionLogDto> {
+  function emit(e: LogEntry): Promise<ExecutionLogDto> {
+    const p = writeLog(e);
+    pending.add(p);
+    p.finally(() => pending.delete(p)).catch(() => {});
+    return p;
+  }
+  async function flush(): Promise<void> {
+    while (pending.size > 0) await Promise.allSettled(pending);
+    await jsonl.flush();
+  }
+  async function writeLog(e: LogEntry): Promise<ExecutionLogDto> {
     const ts = e.ts ?? new Date();
     const dto: ExecutionLogDto = {
       id: newId(), ts: ts.toISOString(), level: e.level, eventType: e.eventType, category: e.category,
@@ -476,5 +488,5 @@ export function createInstrumentation(prisma: PrismaClient, opts: Instrumentatio
   // make sure the log dir exists up-front (best effort)
   try { fs.mkdirSync(logDir, { recursive: true }); } catch (e) { reportFailure('logDir.mkdir', e); }
 
-  return { startTrace, recordMemory, recordBus, recordTool, recordContext, recordActivity, recordError, log, startTask, withSpan };
+  return { startTrace, recordMemory, recordBus, recordTool, recordContext, recordActivity, recordError, log, flush, startTask, withSpan };
 }

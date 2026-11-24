@@ -124,6 +124,8 @@ describe('restart persistence (new PrismaClient + deps + app on the same files)'
     ctx = await ctx.restart();
     await pay(ctx, { projectId: p.id, prompt: 'three' });
     expect(await ctx.prisma.usageEvent.count()).toBe(3);
+    // the request log is written from res 'finish' without being awaited: let it reach DB and JSONL before comparing
+    await ctx.deps.instr.flush();
     const lines = readJsonl(ctx);
     expect(await ctx.prisma.executionLog.count()).toBe(lines.length);
     expect(new Set(lines.map(l => l.id)).size).toBe(lines.length);

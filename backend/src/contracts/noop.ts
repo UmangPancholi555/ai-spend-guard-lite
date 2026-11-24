@@ -21,7 +21,7 @@ export function createNoopInstrumentation(): Instrumentation {
     recordMemory: async i => i.operationId ?? 'noop',
     recordBus: async i => i.operationId ?? 'noop',
     recordTool: async () => {}, recordContext: async () => {}, recordActivity: async () => {},
-    recordError: async () => {}, log: async () => {},
+    recordError: async () => {}, log: async () => {}, flush: async () => {},
     startTask: async () => ({ id: 'noop', succeed: async () => {}, fail: async () => {} }),
     withSpan: async (_p, _n, _k, fn) => fn(span('noop')),
   };
