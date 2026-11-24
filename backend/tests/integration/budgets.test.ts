@@ -63,9 +63,26 @@ describe('budget alerts through the real pipeline', () => {
     // activity feed has exactly 3 budget.alert events for this project
     const act = await listAll(ctx, `/api/activity?projectId=${p.id}&type=budget.alert`);
     expect(act).toHaveLength(3);
+    // level escalates with the threshold, in the alert list, the activity feed and the dashboard
+    expect(Object.fromEntries(alerts.map((a: any) => [a.threshold, a.level]))).toEqual({ 50: 'INFO', 80: 'WARN', 100: 'CRITICAL' });
+    expect(Object.fromEntries(act.map((a: any) => [a.metadata.threshold, a.level]))).toEqual({ 50: 'INFO', 80: 'WARN', 100: 'CRITICAL' });
     // dashboard exposes them
     const dash = await api(ctx).get(`/api/dashboard?projectId=${p.id}`);
     expect(dash.body.data.recentAlerts).toHaveLength(3);
+    expect(Object.fromEntries(dash.body.data.recentAlerts.map((a: any) => [a.threshold, a.level]))).toEqual({ 50: 'INFO', 80: 'WARN', 100: 'CRITICAL' });
+    // activity level filter finds exactly the CRITICAL (100%) alert
+    const crit = await listAll(ctx, `/api/activity?projectId=${p.id}&type=budget.alert&level=CRITICAL`);
+    expect(crit.map((a: any) => a.metadata.threshold)).toEqual([100]);
+    // CRITICAL is an alert severity, not a failure: its log row is level CRITICAL / status INFO and is not listed as an error
+    const logs = await listAll(ctx, `/api/logs?projectId=${p.id}&level=CRITICAL`);
+    expect(logs.map((l: any) => [l.eventType, l.status])).toEqual([['activity.budget.alert', 'INFO']]);
+    const errs = await listAll(ctx, `/api/observability/errors?projectId=${p.id}`);
+    expect(errs.filter((e: any) => e.operation === 'budget.alert')).toHaveLength(0);
+    // the alerts export carries the level
+    const csv = await api(ctx).get(`/api/export/alerts?budgetId=${b.id}&format=csv`);
+    expect(csv.status).toBe(200);
+    expect(csv.text.split('\n')[0]).toContain('threshold,level,');
+    expect(csv.text).toContain(',100,CRITICAL,');
   });
 
   it('one request that jumps over several thresholds creates every crossed alert once', async () => {

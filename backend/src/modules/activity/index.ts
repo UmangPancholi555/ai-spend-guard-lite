@@ -11,7 +11,7 @@ import {
 
 export const activityQuery = listBase.extend({
   type: z.string().trim().min(1).max(100).optional(),        // exact; comma-separated list allowed ("a,b")
-  level: z.enum(['INFO', 'WARN', 'ERROR']).optional(),
+  level: z.enum(['INFO', 'WARN', 'ERROR', 'CRITICAL']).optional(),
   source: SOURCE_ENUM.optional(),
   projectId: z.string().min(1).max(64).optional(),
   traceId: z.string().min(1).max(64).optional(),

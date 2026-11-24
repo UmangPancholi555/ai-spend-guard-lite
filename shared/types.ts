@@ -18,8 +18,15 @@ export type UsageStatus = 'SUCCESS' | 'FAILURE';
 export type CostClass = 'SIMULATED' | 'ESTIMATED';
 export type BudgetPeriod = 'DAILY' | 'WEEKLY' | 'MONTHLY';
 export type AlertThreshold = 50 | 80 | 100;
+/**
+ * Severity of a budget alert, derived from its threshold: 50% INFO, 80% WARN, 100% CRITICAL.
+ * CRITICAL is an alert severity, not a failure: it is never counted as an error / FAILURE operation.
+ */
+export type AlertLevel = 'INFO' | 'WARN' | 'CRITICAL';
+export const ALERT_LEVEL_BY_THRESHOLD: Record<AlertThreshold, AlertLevel> = { 50: 'INFO', 80: 'WARN', 100: 'CRITICAL' };
+export const alertLevelFor = (threshold: number): AlertLevel => (threshold >= 100 ? 'CRITICAL' : threshold >= 80 ? 'WARN' : 'INFO');
 export type ProjectStatus = 'ACTIVE' | 'ARCHIVED';
-export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
 export type SpanStatus = 'RUNNING' | 'OK' | 'ERROR';
 export type SpanKind =
   | 'REQUEST' | 'CONTEXT' | 'MEMORY' | 'BUS' | 'TOOL' | 'PROVIDER' | 'COST' | 'BUDGET' | 'INTERNAL';
@@ -152,13 +159,13 @@ export interface BudgetUtilizationHistoryPoint { periodStart: string; periodEnd:
 export interface BudgetUtilizationDetail extends BudgetUtilization { history: BudgetUtilizationHistoryPoint[] }
 export interface BudgetAlertDto {
   id: string; budgetId: string; budgetName: string; projectId: string | null; projectName: string | null;
-  period: BudgetPeriod; threshold: AlertThreshold; periodStart: string; periodEnd: string;
+  period: BudgetPeriod; threshold: AlertThreshold; level: AlertLevel; periodStart: string; periodEnd: string;
   spendUsd: string; limitUsd: string; percent: number; createdAt: string;
 }
 
 // ---------- Activity / traces ----------
 export interface ActivityEventDto {
-  id: string; type: string; level: 'INFO' | 'WARN' | 'ERROR'; message: string; source: Source;
+  id: string; type: string; level: 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL'; message: string; source: Source;
   projectId: string | null; projectName?: string | null; traceId: string | null; requestId: string | null;
   metadata: Record<string, unknown>; createdAt: string;
 }

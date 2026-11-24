@@ -16,7 +16,7 @@ import type {
 
 // ---------------------------------------------------------------- enums
 export const SOURCE_ENUM = z.enum(['ACTUAL', 'SIMULATED']);
-export const LOG_LEVELS = z.enum(['DEBUG', 'INFO', 'WARN', 'ERROR']);
+export const LOG_LEVELS = z.enum(['DEBUG', 'INFO', 'WARN', 'ERROR', 'CRITICAL']);
 export const ERROR_CATEGORIES = z.enum([
   'VALIDATION', 'PROVIDER', 'TIMEOUT', 'TOOL', 'BUS', 'MEMORY', 'CONTEXT', 'DATABASE', 'INTERNAL', 'UNKNOWN',
 ]);

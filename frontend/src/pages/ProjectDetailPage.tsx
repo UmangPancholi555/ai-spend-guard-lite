@@ -138,7 +138,7 @@ export default function ProjectDetailPage() {
                     <ul className="divide-y divide-slate-100 dark:divide-slate-800" data-testid="project-activity">
                       {activity.data!.data.map(a => (
                         <li key={a.id} className="flex flex-wrap items-center gap-2 py-2 text-sm" data-testid="project-activity-item">
-                          <Badge tone={a.level === 'ERROR' ? 'red' : a.level === 'WARN' ? 'amber' : 'slate'}>{a.level}</Badge>
+                          <Badge tone={a.level === 'ERROR' || a.level === 'CRITICAL' ? 'red' : a.level === 'WARN' ? 'amber' : 'slate'}>{a.level}</Badge>
                           <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{a.type}</span>
                           <span className="min-w-0 break-words">{a.message}</span>
                           <span className="text-xs text-slate-600 dark:text-slate-400">{fmtDateTime(a.createdAt)}</span>

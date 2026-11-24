@@ -20,7 +20,7 @@ export default function ActivityPage() {
         actions={<ExportLinks dataset="activity" params={f.params} />} />
       <FilterBar onReset={f.reset} dirty={f.dirty}>
         <TextFilter label="Type" value={f.filters.type} onChange={v => f.setFilter('type', v)} placeholder="e.g. usage.recorded" testId="activity-filter-type" />
-        <SelectFilter label="Level" value={f.filters.level} onChange={v => f.setFilter('level', v)} options={['INFO', 'WARN', 'ERROR']} testId="activity-filter-level" />
+        <SelectFilter label="Level" value={f.filters.level} onChange={v => f.setFilter('level', v)} options={['INFO', 'WARN', 'ERROR', 'CRITICAL']} testId="activity-filter-level" />
         <SelectFilter label="Source" value={f.filters.source} onChange={v => f.setFilter('source', v)} options={SOURCE_OPTIONS} testId="activity-filter-source" />
         <ProjectSelect value={f.filters.projectId} onChange={v => f.setFilter('projectId', v)} testId="activity-filter-project" />
         <TextFilter label="Search" type="search" value={f.filters.search} onChange={v => f.setFilter('search', v)} placeholder="message, type, request id" testId="activity-filter-search" className="min-w-[12rem]" />

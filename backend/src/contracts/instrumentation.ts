@@ -65,14 +65,14 @@ export interface ContextRecordInput extends Correlation {
   success?: boolean; errorMessage?: string; durationMs?: number;
 }
 export interface ActivityInput extends Correlation {
-  type: string; level?: 'INFO' | 'WARN' | 'ERROR'; message: string; source: Source; metadata?: Record<string, unknown>;
+  type: string; level?: 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL'; message: string; source: Source; metadata?: Record<string, unknown>;
 }
 export interface ErrorRecordInput extends Correlation {
   source: Source; category: ErrorCategory; operation: string; error: ErrorInfo | unknown;
   attributes?: Record<string, unknown>; durationMs?: number;
 }
 export interface LogInput extends Correlation {
-  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
   eventType: string;
   category: 'REQUEST' | 'MEMORY' | 'BUS' | 'TOOL' | 'CONTEXT' | 'ERROR' | 'SYSTEM' | 'BUDGET' | 'PROVIDER';
   operation: string; status: 'STARTED' | 'SUCCESS' | 'FAILURE' | 'INFO'; source: Source;

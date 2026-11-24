@@ -2,6 +2,7 @@ import type { PrismaClient, Budget, BudgetAlert, Project } from '@prisma/client'
 import type {
   AlertThreshold, BudgetAlertDto, BudgetDto, BudgetPeriod, BudgetUtilization, BudgetUtilizationHistoryPoint,
 } from '../../../../shared/types';
+import { alertLevelFor } from '../../../../shared/types';
 import type { BudgetService } from '../../contracts/services';
 import type { Instrumentation } from '../../contracts/instrumentation';
 import { percentOf, picoToUsd } from '../../utils/money';
@@ -26,7 +27,7 @@ export function toAlertDto(a: AlertWithBudget): BudgetAlertDto {
   return {
     id: a.id, budgetId: a.budgetId, budgetName: a.budget.name,
     projectId: a.budget.projectId, projectName: a.budget.project?.name ?? null,
-    period: a.budget.period as BudgetPeriod, threshold: a.threshold as AlertThreshold,
+    period: a.budget.period as BudgetPeriod, threshold: a.threshold as AlertThreshold, level: alertLevelFor(a.threshold),
     periodStart: a.periodStart.toISOString(), periodEnd: a.periodEnd.toISOString(),
     spendUsd: picoToUsd(a.spendPico), limitUsd: picoToUsd(a.limitPico), percent: a.percent,
     createdAt: a.createdAt.toISOString(),
@@ -110,11 +111,12 @@ export function createBudgetService(prisma: PrismaClient, instr: Instrumentation
   async function emit(alert: AlertWithBudget, ctx: { traceId?: string; spanId?: string; projectId?: string }) {
     const dto = toAlertDto(alert);
     const projectId = alert.budget.projectId ?? ctx.projectId;
-    // a threshold crossing is a successful, noteworthy event - never an ERROR/FAILURE
-    const level = 'WARN' as const;
+    // severity escalates with the threshold: 50% INFO, 80% WARN, 100% CRITICAL. A crossing is a successful, noteworthy event:
+    // even CRITICAL is never an ERROR/FAILURE (it does not count as a failed operation or an error in Observability).
+    const level = dto.level;
     const base = { traceId: ctx.traceId, spanId: ctx.spanId, projectId };
     const meta = {
-      budgetId: dto.budgetId, budgetName: dto.budgetName, threshold: dto.threshold, percent: dto.percent,
+      budgetId: dto.budgetId, budgetName: dto.budgetName, threshold: dto.threshold, level: dto.level, percent: dto.percent,
       period: dto.period, periodStart: dto.periodStart, alertId: dto.id, budgetProjectId: dto.projectId,
     };
     const message = `Budget "${dto.budgetName}" reached ${dto.threshold}% of its ${dto.period.toLowerCase()} limit (${dto.percent}% used)`;

@@ -46,7 +46,7 @@ export interface Dataset<Q = any> {
 // ---- logs
 const logsFilter = z.object({
   eventType: str.optional(), category: z.enum(['REQUEST', 'MEMORY', 'BUS', 'TOOL', 'CONTEXT', 'ERROR', 'SYSTEM', 'BUDGET', 'PROVIDER']).optional(),
-  status: z.enum(['STARTED', 'SUCCESS', 'FAILURE', 'INFO']).optional(), level: z.enum(['DEBUG', 'INFO', 'WARN', 'ERROR']).optional(),
+  status: z.enum(['STARTED', 'SUCCESS', 'FAILURE', 'INFO']).optional(), level: z.enum(['DEBUG', 'INFO', 'WARN', 'ERROR', 'CRITICAL']).optional(),
   source: source.optional(), traceId: str.optional(), requestId: str.optional(), projectId: str.optional(), search: str.optional(), ...range,
 });
 /** eventType: exact, comma-separated list, or trailing `*` prefix match (e.g. `memory.injection.*`). */
@@ -86,7 +86,7 @@ const errors: Dataset<z.infer<typeof errorsFilter>> = {
 
 // ---- activity
 const activityFilter = z.object({
-  type: str.optional(), level: z.enum(['INFO', 'WARN', 'ERROR']).optional(), source: source.optional(), projectId: str.optional(),
+  type: str.optional(), level: z.enum(['INFO', 'WARN', 'ERROR', 'CRITICAL']).optional(), source: source.optional(), projectId: str.optional(),
   traceId: str.optional(), search: str.optional(), ...range,
 });
 const activityHeaders = ['id', 'createdAt', 'type', 'level', 'message', 'source', 'projectId', 'projectName', 'traceId', 'requestId', 'metadata'];
@@ -148,7 +148,7 @@ const context: Dataset<EventQ> = {
 const alertsFilter = z.object({
   budgetId: str.optional(), projectId: str.optional(), threshold: z.coerce.number().int().refine(n => [50, 80, 100].includes(n), 'threshold must be 50, 80 or 100').optional(), ...range,
 });
-const alertHeaders = ['id', 'createdAt', 'budgetId', 'budgetName', 'projectId', 'projectName', 'period', 'threshold', 'periodStart', 'periodEnd',
+const alertHeaders = ['id', 'createdAt', 'budgetId', 'budgetName', 'projectId', 'projectName', 'period', 'threshold', 'level', 'periodStart', 'periodEnd',
   'spendUsd', 'limitUsd', 'percent'];
 const alerts: Dataset<z.infer<typeof alertsFilter>> = {
   name: 'alerts', filterSchema: alertsFilter, delegate: p => p.budgetAlert as any, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
