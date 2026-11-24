@@ -51,7 +51,7 @@ This is the precise boundary; the rest of the document refers back to it.
 | 17 | **End-to-end tests** (Playwright) | Complete (89 specs passing; chromium only) | `playwright.config.ts`, `tests/e2e/support/*` (isolated build + temp DB + auth-ON server on :4300, second no-user server on :4301 for first-run setup), `tests/e2e/01-shell ... 99-restart-persistence.spec.ts`; `npm run test:e2e` |
 | 18 | **Documentation** | Complete | `README.md`, `docs/{ARCHITECTURE,DATABASE,API,TESTING,SECURITY,IMPLEMENTATION-STATUS}.md`; `docs/QA-REPORT.md` is written by the QA role (link only) |
 | 19 | **Security posture** | Complete for scope; residual risks documented | [SECURITY.md](SECURITY.md): login required by default, HttpOnly SameSite=Strict sessions, CSRF token, origin and Host guards, roles, lockout and throttles, scrypt, CSP and security headers, rate limiting. Not provided: TLS termination, MFA / SSO, multi-tenancy, encryption at rest; throttles are in memory and per process |
-| 20 | **Authentication and authorization**: login, first-run setup, sessions, CSRF, `ADMIN` / `VIEWER`, user management, lockout, audit | Complete | `modules/auth/*`, `middleware/security.ts`, `utils/password.ts`, `shared/auth.ts`, `pages/{Login,Setup,Account}Page.tsx`, `components/auth/*`; `tests/auth/*`, `tests/core/{hostguard,clientkey}.test.ts`, `tests/e2e/10-auth.spec.ts`, `11-auth-setup.spec.ts`. `AUTH_ENABLED=false` removes all of it (explicit opt-out with a startup warning) |
+| 20 | **Authentication and authorization**: login, first-run setup, sessions, CSRF, `ADMIN` / `VIEWER`, user management, lockout, audit | Complete | `modules/auth/*`, `middleware/security.ts`, `utils/password.ts`, `shared/auth.ts`, `pages/{Login,Setup,Account}Page.tsx`, `components/auth/*`; `tests/auth/*`, `tests/core/{hostguard,clientkey}.test.ts`, `tests/e2e/10-auth.spec.ts`, `11-auth-setup.spec.ts`. `AUTH_ENABLED=false` removes all of it (explicit opt-out with a startup warning). For `VIEWER` the UI disables (but still shows) every mutating control with `aria-disabled` and a "Read-only account" tooltip, and blocks their submit paths (`components/auth/readOnly.ts`, QA bug #8); the server keeps enforcing the role. Tests: `frontend/src/components/auth/readOnly.test.tsx` |
 | 21 | **Runtime: project memory, context manager, local tools, event bus** | Complete as in-app components; not an external agent runtime (section 0) | `modules/runtime/*`, `modules/providers/pipeline.ts`, `shared/runtime.ts`, `components/memory/*`; `tests/runtime/*` |
 
 ## 2. Observability sub-items (letters inferred)
@@ -75,6 +75,7 @@ This is the precise boundary; the rest of the document refers back to it.
 |---|---|---|
 | Backend test files / tests (Vitest) | 57 files / 727 tests | verified by coordinator: yes (2026-11-23) |
 | Backend pass / fail / skipped | 727 / 0 / 0 | verified by coordinator: yes |
+| Frontend unit tests (Vitest + jsdom, part of `npm test`) | 1 file / 24 tests passed (VIEWER read-only controls, QA bug #8) | verified: yes (2026-11-24) |
 | Typecheck (`npm run typecheck`) | clean | verified by coordinator: yes |
 | Build (`npm run build`) | succeeds, no bundle-size warning | verified by coordinator: yes |
 | E2E (Playwright) | 89 passed / 0 failed (1.6 min, single run after one racy step was fixed) | verified by coordinator: yes |

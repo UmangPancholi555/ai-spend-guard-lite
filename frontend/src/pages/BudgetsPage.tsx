@@ -12,12 +12,14 @@ import AlertHistory, { ThresholdChips } from '../components/budgets/AlertHistory
 import BudgetForm from '../components/budgets/BudgetForm';
 import BudgetRow from '../components/budgets/BudgetRow';
 import { SelectFilter } from '../components/observability/common';
+import { useReadOnly } from '../components/auth/readOnly';
 
 export default function BudgetsPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [projectId, setProjectId] = useState('');
   const bump = () => setReloadKey(k => k + 1);
   const toast = useToast();
+  const { readOnly, guard } = useReadOnly();
 
   const projects = useAsync(async () => (await api.list<ProjectWithUsage>('/projects', { includeTest: true, pageSize: 200 })).data, []);
   const budgets = useAsync(() => api.get<BudgetDto[]>('/budgets', { projectId }), [projectId, reloadKey]);
@@ -30,6 +32,7 @@ export default function BudgetsPage() {
   const [evalError, setEvalError] = useState<string>();
 
   async function evaluate() {
+    if (readOnly) return;
     setEvaluating(true); setEvalError(undefined);
     try {
       const created = await api.post<BudgetAlertDto[]>('/budgets/evaluate');
@@ -46,7 +49,7 @@ export default function BudgetsPage() {
   return (
     <div>
       <PageHeader title="Budgets & Alerts" subtitle="Spend limits per project or globally, with alerts at 50%, 80% and 100% of each period's limit. Spend is from simulated mock requests."
-        actions={<Button onClick={evaluate} disabled={evaluating} data-testid="budgets-evaluate">{evaluating ? 'Evaluating...' : 'Evaluate now'}</Button>} />
+        actions={<Button onClick={evaluate} {...guard(evaluating)} data-testid="budgets-evaluate">{evaluating ? 'Evaluating...' : 'Evaluate now'}</Button>} />
 
       {evalError && <div role="alert" data-testid="evaluate-error" className="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">{evalError}</div>}
       {evalResult && (
@@ -76,7 +79,7 @@ export default function BudgetsPage() {
       <Async loading={budgets.loading && !budgets.data} error={budgets.error ?? utils.error} skeleton="table" reload={() => { budgets.reload(); utils.reload(); }}>
         {budgets.data && budgets.data.length === 0
           ? <Card><EmptyState message="No budgets yet. Create one above to start tracking utilization and alerts."
-              action={<Button variant="secondary" data-testid="budget-empty-cta" onClick={() => document.querySelector<HTMLInputElement>('[data-testid="budget-create-name"]')?.focus()}>Create your first budget</Button>} /></Card>
+              action={<Button variant="secondary" {...guard()} data-testid="budget-empty-cta" onClick={() => document.querySelector<HTMLInputElement>('[data-testid="budget-create-name"]')?.focus()}>Create your first budget</Button>} /></Card>
           : (
             <ul className="space-y-3" data-testid="budget-list">
               {(budgets.data ?? []).map(b => <BudgetRow key={b.id} budget={b} util={utilById.get(b.id)} reloadKey={reloadKey} onChanged={bump} />)}

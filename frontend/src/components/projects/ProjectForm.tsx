@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import type { ProjectDto } from '@shared/types';
 import { Button, inputCls } from '../ui/Button';
 import { errMessage } from './util';
+import { useReadOnly } from '../auth/readOnly';
 
 export interface ProjectFormValues { name: string; description: string; isTest: boolean }
 
@@ -18,9 +19,11 @@ export default function ProjectForm({ initial, mode, onSubmit, onCancel }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [nameErr, setNameErr] = useState<string>();
+  const { readOnly, guard } = useReadOnly();
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (readOnly) return;
     const trimmed = name.trim();
     if (!trimmed) { setNameErr('Name is required.'); return; }
     if (trimmed.length > 80) { setNameErr('Name must be 80 characters or fewer.'); return; }
@@ -50,7 +53,7 @@ export default function ProjectForm({ initial, mode, onSubmit, onCancel }: {
       {error && <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200" data-testid="project-form-error">{error}</p>}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="secondary" onClick={onCancel} disabled={busy} data-testid="project-form-cancel">Cancel</Button>
-        <Button type="submit" disabled={busy} data-testid={mode === 'create' ? 'project-create-submit' : 'project-edit-submit'}>
+        <Button type="submit" {...guard(busy)} data-testid={mode === 'create' ? 'project-create-submit' : 'project-edit-submit'}>
           {busy ? 'Saving...' : mode === 'create' ? 'Create project' : 'Save changes'}
         </Button>
       </div>

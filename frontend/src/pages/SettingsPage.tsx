@@ -10,6 +10,7 @@ import { useAsync } from '../lib/useApi';
 import { fmtDateTime, fmtMs } from '../lib/format';
 import { Field, JsonBlock, KeyVal, StackBlock } from '../components/observability/common';
 import { useToast } from '../components/ui/Toast';
+import { useReadOnly } from '../components/auth/readOnly';
 
 function intError(v: string, min: number, max: number, label: string): string | null {
   if (!/^\d+$/.test(v.trim())) return `${label} must be a whole number.`;
@@ -21,6 +22,7 @@ function intError(v: string, min: number, max: number, label: string): string | 
 export default function SettingsPage() {
   const { data, error, loading, reload } = useAsync(() => api.get<AppSettings>('/settings'), []);
   const toast = useToast();
+  const { readOnly, guard } = useReadOnly();
   const [retention, setRetention] = useState('');
   const [slow, setSlow] = useState('');
   const [saving, setSaving] = useState(false);
@@ -41,7 +43,7 @@ export default function SettingsPage() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (invalid) return;
+    if (readOnly || invalid) return;
     setSaving(true); setSaveError(undefined); setSaved(false);
     try {
       await api.put<AppSettings>('/settings', { retentionDays: Number(retention), slowOperationMs: Number(slow) });
@@ -52,6 +54,7 @@ export default function SettingsPage() {
   }
 
   async function runSweep() {
+    if (readOnly) return;
     setSweeping(true); setSweepError(undefined);
     try { const t = await api.post<BackgroundTaskDto>('/logging/retention/run'); setSweep(t); toast.success('Retention sweep finished', `Status: ${t.status}`); }
     catch (err) { setSweepError((err as Error).message); setSweep(undefined); toast.error('Retention sweep failed', (err as Error).message); }
@@ -66,12 +69,12 @@ export default function SettingsPage() {
           <form onSubmit={save} noValidate className="space-y-4" data-testid="settings-form">
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Retention (days, 0 = keep forever)">
-                <input className={inputCls} inputMode="numeric" value={retention} onChange={e => { setRetention(e.target.value); setSaved(false); }}
+                <input className={inputCls} inputMode="numeric" value={retention} disabled={readOnly} onChange={e => { setRetention(e.target.value); setSaved(false); }}
                   aria-invalid={!!retErr} data-testid="settings-retention-input" />
                 {retErr && <span className="text-xs text-red-700 dark:text-red-400" data-testid="settings-retention-error">{retErr}</span>}
               </Field>
               <Field label="Slow operation threshold (ms)">
-                <input className={inputCls} inputMode="numeric" value={slow} onChange={e => { setSlow(e.target.value); setSaved(false); }}
+                <input className={inputCls} inputMode="numeric" value={slow} disabled={readOnly} onChange={e => { setSlow(e.target.value); setSaved(false); }}
                   aria-invalid={!!slowErr} data-testid="settings-slow-input" />
                 {slowErr && <span className="text-xs text-red-700 dark:text-red-400" data-testid="settings-slow-error">{slowErr}</span>}
               </Field>
@@ -90,7 +93,7 @@ export default function SettingsPage() {
             </div>
             {saveError && <div role="alert" data-testid="settings-error" className="rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">{saveError}</div>}
             <div className="flex items-center gap-3">
-              <Button type="submit" disabled={saving || invalid || !dirty} data-testid="settings-save">{saving ? 'Saving...' : 'Save settings'}</Button>
+              <Button type="submit" {...guard(saving || invalid || !dirty)} data-testid="settings-save">{saving ? 'Saving...' : 'Save settings'}</Button>
               {saved && !dirty && <span role="status" className="text-sm text-emerald-700 dark:text-emerald-300" data-testid="settings-saved">Settings saved.</span>}
             </div>
           </form>
@@ -101,7 +104,7 @@ export default function SettingsPage() {
             Deletes execution logs, memory/bus/tool/context events and finished traces older than the saved retention
             ({data ? (data.retentionDays === 0 ? 'keep forever, so nothing is deleted' : `${data.retentionDays} days`) : '...'}). Budgets, usage and projects are never touched. Save changes above before running.
           </p>
-          <div className="mt-3"><Button variant="secondary" onClick={runSweep} disabled={sweeping} data-testid="settings-retention-run">{sweeping ? 'Running sweep...' : 'Run retention sweep now'}</Button></div>
+          <div className="mt-3"><Button variant="secondary" onClick={runSweep} {...guard(sweeping)} data-testid="settings-retention-run">{sweeping ? 'Running sweep...' : 'Run retention sweep now'}</Button></div>
           {sweepError && <div role="alert" data-testid="retention-error" className="mt-3 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">{sweepError}</div>}
           {sweep && (
             <div className="mt-4 space-y-3" data-testid="retention-result" role="status">

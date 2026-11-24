@@ -7,6 +7,7 @@ import { api } from '../../lib/api';
 import { fmtDateTime, fmtUsd } from '../../lib/format';
 import { errMessage } from '../projects/util';
 import { useToast } from '../ui/Toast';
+import { useReadOnly } from '../auth/readOnly';
 import { PRICE_RE, costPico, localToIso, pctAbove, picoToUsd, priceToMicro, usdToPico, validateTokens } from './math';
 
 const labelCls = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400';
@@ -18,6 +19,8 @@ interface Preview { before: CostBreakdown; afterTotal: string; afterParts: { inp
 
 export default function NewVersionTab({ rows, onCreated }: { rows: PricingDto[]; onCreated: () => void }) {
   const toast = useToast();
+  // VIEWER may still fill the form and run "Preview impact" (it only calls the calculator); creating a version is admin-only
+  const { readOnly, guard } = useReadOnly();
   const [provider, setProvider] = useState('');
   const [model, setModel] = useState('');
   const [inP, setInP] = useState('');
@@ -72,6 +75,7 @@ export default function NewVersionTab({ rows, onCreated }: { rows: PricingDto[];
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (readOnly) return;
     setTouched(true); setError(undefined); setCreated(undefined);
     if (!formValid) return;
     setBusy(true);
@@ -180,7 +184,7 @@ export default function NewVersionTab({ rows, onCreated }: { rows: PricingDto[];
           </fieldset>
 
           {error && <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200" data-testid="pricing-new-error">{error}</p>}
-          <div className="flex justify-end"><Button type="submit" disabled={busy} data-testid="pricing-new-submit">{busy ? 'Creating...' : 'Create new version'}</Button></div>
+          <div className="flex justify-end"><Button type="submit" {...guard(busy)} data-testid="pricing-new-submit">{busy ? 'Creating...' : 'Create new version'}</Button></div>
         </form>
       </Card>
       {created && (

@@ -14,6 +14,7 @@ import { Modal, ConfirmDialog } from '../components/projects/Modal';
 import ProjectForm from '../components/projects/ProjectForm';
 import { errMessage, slugify } from '../components/projects/util';
 import { useToast } from '../components/ui/Toast';
+import { useReadOnly } from '../components/auth/readOnly';
 
 type Dialog =
   | { kind: 'create' }
@@ -23,6 +24,7 @@ type Dialog =
 
 export default function ProjectsPage() {
   const toast = useToast();
+  const { readOnly, guard } = useReadOnly();
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'' | 'ACTIVE' | 'ARCHIVED'>('');
@@ -45,6 +47,7 @@ export default function ProjectsPage() {
   );
 
   async function toggleArchive(p: ProjectWithUsage) {
+    if (readOnly) return;
     setActionError(undefined); setBusyId(p.id);
     try { await api.post(`/projects/${p.id}/${p.status === 'ACTIVE' ? 'archive' : 'unarchive'}`); toast.success(p.status === 'ACTIVE' ? `Archived "${p.name}"` : `Restored "${p.name}"`); list.reload(); }
     catch (e) { setActionError(`${p.name}: ${errMessage(e)}`); toast.error('Could not update project', `${p.name}: ${errMessage(e)}`); }
@@ -52,6 +55,7 @@ export default function ProjectsPage() {
   }
 
   async function confirmDelete(p: ProjectWithUsage) {
+    if (readOnly) return;
     setDeleteBusy(true); setDeleteError(undefined);
     try { await api.del(`/projects/${p.id}`); setDialog(null); toast.success(`Deleted "${p.name}"`); list.reload(); }
     catch (e) { setDeleteError(errMessage(e)); }
@@ -65,7 +69,7 @@ export default function ProjectsPage() {
       <PageHeader
         title="Projects"
         subtitle="Simulated usage and cost per project (DEMO / SIMULATED data)."
-        actions={<Button onClick={() => setDialog({ kind: 'create' })} data-testid="project-create-open">New project</Button>}
+        actions={<Button {...guard()} onClick={() => setDialog({ kind: 'create' })} data-testid="project-create-open">New project</Button>}
       />
 
       <Card className="mb-4">
@@ -94,7 +98,7 @@ export default function ProjectsPage() {
       <Async loading={list.loading && !list.data} error={list.error} skeleton="table">
         <Table
           head={['Project', 'Status', 'Requests', 'Failures', 'Tokens (in / out / cached)', 'Cost (simulated)', 'Last activity', 'Actions']}
-          empty={rows.length === 0 ? <EmptyState message="No projects match. Create one, or seed demo data from the Request Simulator." action={<Button onClick={() => setDialog({ kind: 'create' })} data-testid="project-empty-cta">Create a project</Button>} /> : undefined}
+          empty={rows.length === 0 ? <EmptyState message="No projects match. Create one, or seed demo data from the Request Simulator." action={<Button {...guard()} onClick={() => setDialog({ kind: 'create' })} data-testid="project-empty-cta">Create a project</Button>} /> : undefined}
         >
           {rows.map(p => {
             const slug = slugify(p.name);
@@ -114,11 +118,11 @@ export default function ProjectsPage() {
                 <Td>{fmtDateTime(p.usage.lastActivityAt)}</Td>
                 <Td>
                   <div className="flex flex-wrap gap-1">
-                    <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setDialog({ kind: 'edit', project: p })} data-testid={`project-edit-${slug}`}>Edit</Button>
-                    <Button variant="secondary" className="!px-2 !py-1 text-xs" disabled={busy} onClick={() => toggleArchive(p)} data-testid={`project-${p.status === 'ACTIVE' ? 'archive' : 'unarchive'}-${slug}`}>
+                    <Button variant="secondary" className="!px-2 !py-1 text-xs" {...guard()} onClick={() => setDialog({ kind: 'edit', project: p })} data-testid={`project-edit-${slug}`}>Edit</Button>
+                    <Button variant="secondary" className="!px-2 !py-1 text-xs" {...guard(busy)} onClick={() => toggleArchive(p)} data-testid={`project-${p.status === 'ACTIVE' ? 'archive' : 'unarchive'}-${slug}`}>
                       {p.status === 'ACTIVE' ? 'Archive' : 'Unarchive'}
                     </Button>
-                    <Button variant="danger" className="!px-2 !py-1 text-xs" disabled={!p.isTest || busy} title={p.isTest ? 'Delete this test project and its usage data' : 'Only test projects can be deleted'}
+                    <Button variant="danger" className="!px-2 !py-1 text-xs" {...guard(!p.isTest || busy, p.isTest ? 'Delete this test project and its usage data' : 'Only test projects can be deleted')}
                       onClick={() => { setDeleteError(undefined); setDialog({ kind: 'delete', project: p }); }} data-testid={`project-delete-${slug}`}>Delete</Button>
                   </div>
                 </Td>
@@ -129,7 +133,7 @@ export default function ProjectsPage() {
         {list.data && list.data.pagination.total > 0 && <PaginationBar p={list.data.pagination} onPage={setPage} />}
       </Async>
 
-      {dialog?.kind === 'create' && (
+      {dialog?.kind === 'create' && !readOnly && (
         <Modal title="New project" onClose={() => setDialog(null)} testId="project-create-dialog">
           <ProjectForm mode="create" onCancel={() => setDialog(null)} onSubmit={async v => {
             await api.post('/projects', { name: v.name, ...(v.description ? { description: v.description } : {}), isTest: v.isTest });
@@ -137,7 +141,7 @@ export default function ProjectsPage() {
           }} />
         </Modal>
       )}
-      {dialog?.kind === 'edit' && (
+      {dialog?.kind === 'edit' && !readOnly && (
         <Modal title={`Edit ${dialog.project.name}`} onClose={() => setDialog(null)} testId="project-edit-dialog">
           <ProjectForm mode="edit" initial={dialog.project} onCancel={() => setDialog(null)} onSubmit={async v => {
             await api.patch(`/projects/${dialog.project.id}`, { name: v.name, description: v.description || null, isTest: v.isTest });
@@ -145,7 +149,7 @@ export default function ProjectsPage() {
           }} />
         </Modal>
       )}
-      {dialog?.kind === 'delete' && (
+      {dialog?.kind === 'delete' && !readOnly && (
         <ConfirmDialog
           title="Delete test project?"
           message={<>This permanently deletes <strong>{dialog.project.name}</strong> together with its usage events, budgets and alerts. This cannot be undone.</>}

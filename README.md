@@ -142,7 +142,7 @@ Open a project (**Projects -> project**), add a memory item (for example categor
 ## Running tests
 
 ```bash
-npm test                  # backend unit + API tests (Vitest, isolated temp SQLite databases)
+npm test                  # backend unit + API tests (Vitest, isolated temp SQLite databases), then frontend unit tests (Vitest + jsdom)
 npm run typecheck         # TypeScript checks for backend and frontend
 npx playwright install chromium   # one-time: download the browser used by e2e tests
 npm run test:e2e          # Playwright end-to-end tests (see docs/TESTING.md)

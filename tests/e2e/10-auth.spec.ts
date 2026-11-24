@@ -1,7 +1,7 @@
 import fs from 'node:fs';
-import { request as pwRequest } from '@playwright/test';
+import { request as pwRequest, type Locator } from '@playwright/test';
 import { test, expect } from './support/test';
-import { watchConsole, uniq } from './support/helpers';
+import { apiBudget, apiCreateProject, slug, watchConsole, uniq } from './support/helpers';
 import {
   OTHER_STRONG_PASSWORD, STRONG_PASSWORD, anonymousClient, createUser, errorCode, loginClient, sessionCookieOf, submitLogin, uiLogin, uniqUser,
 } from './support/auth';
@@ -243,9 +243,25 @@ test.describe('auth: API enforcement', () => {
 test.describe('auth: read-only (VIEWER) account', () => {
   test.use({ auth: 'viewer' });
 
-  test('UI shows read-only badge and banner; every write the UI attempts is refused by the server with a clear message', async ({ page }) => {
+  test('UI shows read-only badge and banner; every mutating control is disabled up front and no write (or 403) ever leaves the browser', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
+    // every non-GET API call and every 403 the page sees; only the cost calculator may write (it is allowed for VIEWER)
+    const writes: string[] = [];
+    const forbidden: string[] = [];
+    page.on('request', r => {
+      const u = new URL(r.url());
+      if (u.pathname.startsWith('/api/') && !['GET', 'HEAD'].includes(r.method())) writes.push(`${r.method()} ${u.pathname}`);
+    });
+    page.on('response', r => { if (r.status() === 403) forbidden.push(`${r.request().method()} ${new URL(r.url()).pathname}`); });
+
+    // data to look at, created by the admin (the viewer cannot)
+    const admin = await adminRequest();
+    const project = await apiCreateProject(admin, uniq('viewer-ro'), true);
+    const budget = await apiBudget(admin, project.id, '5.00');
+    expect((await admin.post(`/api/projects/${project.id}/memory`, { data: { title: 'ro-item', category: 'facts', content: 'viewer sees this', enabled: true } })).status()).toBe(201);
+    await admin.dispose();
+
     await page.goto('/projects');
     await expect(page.getByTestId('user-menu-role')).toHaveText('VIEWER');
     await expect(page.getByTestId('readonly-badge')).toBeVisible();
@@ -263,16 +279,59 @@ test.describe('auth: read-only (VIEWER) account', () => {
     await expect(page.getByTestId('account-create-user-form')).toHaveCount(0);
     await expect(page.getByTestId('account-password-form')).toBeVisible(); // own password stays changeable
 
-    // attempt to create a project through the UI -> server refuses, nothing is created
+    // own session list stays usable
+    await expect(page.getByTestId('account-session-revoke').first()).toBeEnabled();
+    await expect(page.getByTestId('account-password-submit')).not.toHaveAttribute('aria-disabled', 'true');
+
+    // projects: create / rename / archive / delete are visible but disabled; a forced click opens nothing
+    const s = slug(project.name);
     await page.goto('/projects');
-    await page.getByTestId('project-create-open').click();
-    const name = uniq('viewer-proj');
-    await page.getByTestId('project-name-input').fill(name);
-    await page.getByTestId('project-create-submit').click();
-    await expect(page.getByTestId('project-form-error')).toContainText(/read-only/i);
-    await expect(page.getByTestId('project-create-dialog')).toBeVisible(); // dialog stays open, nothing created
-    await page.getByTestId('project-form-cancel').click();
-    await expect(page.getByTestId(`project-row-${name.toLowerCase()}`)).toHaveCount(0);
+    await page.getByTestId('project-search').fill(project.name);
+    await expect(page.getByTestId(`project-row-${s}`)).toBeVisible();
+    for (const id of ['project-create-open', `project-edit-${s}`, `project-archive-${s}`, `project-delete-${s}`]) await expectReadOnlyControl(page.getByTestId(id));
+    await page.getByTestId('project-create-open').click({ force: true });
+    await expect(page.getByTestId('project-create-dialog')).toHaveCount(0);
+
+    // project detail + memory items
+    await page.goto(`/projects/${project.id}`);
+    await expect(page.getByTestId('memory-item')).toHaveCount(1);
+    for (const id of ['project-detail-edit', 'project-detail-archive', 'project-detail-delete', 'memory-add-toggle', 'memory-item-toggle', 'memory-item-edit', 'memory-item-delete']) {
+      await expectReadOnlyControl(page.getByTestId(id));
+    }
+
+    // budgets: evaluate, create form, row actions
+    await page.goto('/budgets');
+    const row = page.getByTestId('budget-row').filter({ hasText: budget.name });
+    await expect(row).toBeVisible();
+    for (const id of ['budgets-evaluate', 'budget-create-submit']) await expectReadOnlyControl(page.getByTestId(id));
+    for (const id of ['budget-toggle-active', 'budget-edit', 'budget-delete']) await expectReadOnlyControl(row.getByTestId(id));
+    await expect(page.getByTestId('budget-create-name')).toBeDisabled();
+    await expect(row.getByTestId('budget-history-toggle')).toBeEnabled(); // reading stays possible
+
+    // settings + retention run
+    await page.goto('/settings');
+    await expect(page.getByTestId('settings-retention-input')).toBeDisabled();
+    await expect(page.getByTestId('settings-slow-input')).toBeDisabled();
+    for (const id of ['settings-save', 'settings-retention-run']) await expectReadOnlyControl(page.getByTestId(id));
+
+    // simulator + seed + agent run; pressing Enter in a field does not submit the form either
+    await page.goto('/simulator');
+    for (const id of ['simulator-submit', 'simulator-seed', 'simulator-agent-run', 'sim-quick-toggle']) await expectReadOnlyControl(page.getByTestId(id));
+    await page.getByTestId('sim-max-tokens').press('Enter');
+    await expect(page.getByTestId('simulator-error')).toHaveCount(0);
+
+    // pricing: new versions are admin-only; the calculator still works for VIEWER
+    await page.goto('/pricing?tab=new');
+    await expectReadOnlyControl(page.getByTestId('pricing-new-submit'));
+    await expect(page.getByTestId('pricing-new-preview')).toBeEnabled();
+    await page.goto('/pricing');
+    await expect(page.getByTestId('pricing-calc-submit')).toBeEnabled();
+    await page.getByTestId('pricing-calc-submit').click();
+    await expect(page.getByTestId('pricing-total')).toBeVisible();
+
+    expect(forbidden, 'no request was refused with 403').toEqual([]);
+    expect(writes.filter(w => w !== 'POST /api/cost/calculate'), 'no write request was sent').toEqual([]);
+    expect(writes).toContain('POST /api/cost/calculate');
     expect(errors).toEqual([]);
   });
 
@@ -463,3 +522,11 @@ async function adminRequest(_anon?: unknown) {
   });
 }
 const adminState = async () => ADMIN_STATE;
+
+/** QA bug #8: VIEWER sees mutating controls, but disabled, with aria-disabled and a "Read-only account" tooltip */
+async function expectReadOnlyControl(control: Locator) {
+  await expect(control).toBeVisible();
+  await expect(control).toBeDisabled();
+  await expect(control).toHaveAttribute('aria-disabled', 'true');
+  await expect(control).toHaveAttribute('title', 'Read-only account');
+}

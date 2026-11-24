@@ -11,6 +11,7 @@ import DemoBanner from '../components/dashboard/DemoBanner';
 import ResponsePanel from '../components/simulator/ResponsePanel';
 import { errMessage } from '../components/projects/util';
 import { useToast } from '../components/ui/Toast';
+import { useReadOnly } from '../components/auth/readOnly';
 
 const CUSTOM = '__custom__';
 const labelCls = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400';
@@ -18,7 +19,8 @@ const errCls = 'rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-
 
 export default function SimulatorPage() {
   const toast = useToast();
-  const providers = useAsync(() => api.get<ProviderDto[]>('/providers'), []);
+  const { readOnly, guard } = useReadOnly();
+  const providers =useAsync(() => api.get<ProviderDto[]>('/providers'), []);
   const projects = useAsync(() => api.list<ProjectWithUsage>('/projects', { status: 'ACTIVE', includeTest: true, pageSize: 200 }), []);
   const active = projects.data?.data ?? [];
 
@@ -65,6 +67,7 @@ export default function SimulatorPage() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (readOnly) return;
     setError(undefined);
     const max = Number(maxOutputTokens);
     const temp = temperature.trim() === '' ? undefined : Number(temperature);
@@ -84,6 +87,7 @@ export default function SimulatorPage() {
 
   async function quickCreate(e: FormEvent) {
     e.preventDefault();
+    if (readOnly) return;
     const name = quickName.trim();
     if (!name) return setQuickErr('Name is required.');
     setQuickBusy(true); setQuickErr(undefined);
@@ -95,6 +99,7 @@ export default function SimulatorPage() {
   }
 
   async function seed() {
+    if (readOnly) return;
     setSeedErr(undefined); setSeedMsg(undefined);
     const requests = Number(seedRequests), spreadDays = Number(seedDays);
     if (!Number.isInteger(requests) || requests < 1) return setSeedErr('Requests must be a positive whole number.');
@@ -113,6 +118,7 @@ export default function SimulatorPage() {
   }
 
   async function agentRun() {
+    if (readOnly) return;
     setAgentErr(undefined); setAgentTrace(undefined);
     if (!projectId) return setAgentErr('Select an active project first.');
     setAgentBusy(true);
@@ -139,7 +145,7 @@ export default function SimulatorPage() {
                 <div>
                   <div className="flex items-end justify-between gap-2">
                     <label htmlFor="sim-project" className={labelCls}>Project (active)</label>
-                    <button type="button" className="mb-1 text-xs text-brand-600 underline dark:text-brand-100" onClick={() => setQuickOpen(o => !o)} data-testid="sim-quick-toggle">
+                    <button type="button" className="mb-1 text-xs text-brand-600 underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50 dark:text-brand-100" {...guard()} onClick={() => setQuickOpen(o => !o)} data-testid="sim-quick-toggle">
                       {quickOpen ? 'Cancel quick create' : 'Create project quickly'}
                     </button>
                   </div>
@@ -149,12 +155,12 @@ export default function SimulatorPage() {
                   </select>
                   {noProjects && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300" data-testid="sim-no-projects">No active projects yet. Create one below or on the <Link to="/projects" className="underline">Projects page</Link>.</p>}
                 </div>
-                {quickOpen && (
+                {quickOpen && !readOnly && (
                   <div className="rounded-md border border-slate-200 p-3 dark:border-slate-700" data-testid="sim-quick-form">
                     <label htmlFor="sim-quick-name" className={labelCls}>New test project name</label>
                     <div className="flex gap-2">
                       <input id="sim-quick-name" className={`${inputCls} min-w-0 flex-1`} value={quickName} onChange={e => setQuickName(e.target.value)} data-testid="sim-quick-name" />
-                      <Button type="button" onClick={quickCreate as unknown as () => void} disabled={quickBusy} data-testid="sim-quick-submit">{quickBusy ? 'Creating...' : 'Create'}</Button>
+                      <Button type="button" onClick={quickCreate as unknown as () => void} {...guard(quickBusy)} data-testid="sim-quick-submit">{quickBusy ? 'Creating...' : 'Create'}</Button>
                     </div>
                     {quickErr && <p role="alert" className="mt-2 text-xs text-red-700 dark:text-red-400" data-testid="sim-quick-error">{quickErr}</p>}
                   </div>
@@ -220,7 +226,7 @@ export default function SimulatorPage() {
 
                 {error && <p role="alert" className={errCls} data-testid="simulator-error">{error}</p>}
                 <div className="flex justify-end">
-                  <Button type="submit" disabled={busy || noProjects} data-testid="simulator-submit">{busy ? 'Sending...' : 'Send mock request'}</Button>
+                  <Button type="submit" {...guard(busy || noProjects)} data-testid="simulator-submit">{busy ? 'Sending...' : 'Send mock request'}</Button>
                 </div>
               </form>
             </Card>
@@ -242,7 +248,7 @@ export default function SimulatorPage() {
               </div>
               <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={seedFailures} onChange={e => setSeedFailures(e.target.checked)} data-testid="seed-failures" /> Include failures</label>
               <label className="mt-1 flex items-center gap-2 text-sm"><input type="checkbox" checked={seedAgent} onChange={e => setSeedAgent(e.target.checked)} data-testid="seed-agent" /> Include agent activity</label>
-              <div className="mt-3"><Button onClick={seed} disabled={seedBusy} data-testid="simulator-seed">{seedBusy ? 'Seeding...' : 'Seed demo data'}</Button></div>
+              <div className="mt-3"><Button onClick={seed} {...guard(seedBusy)} data-testid="simulator-seed">{seedBusy ? 'Seeding...' : 'Seed demo data'}</Button></div>
               {seedMsg && <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300" role="status" data-testid="simulator-seed-result">{seedMsg} <Link to="/" className="underline">Open dashboard</Link></p>}
               {seedErr && <p role="alert" className={`mt-2 ${errCls}`} data-testid="simulator-seed-error">{seedErr}</p>}
             </Card>
@@ -250,7 +256,7 @@ export default function SimulatorPage() {
             <Card title="Simulated agent execution">
               <p className="mb-3 text-xs text-slate-600 dark:text-slate-400">Emits a full SIMULATED agent trace (context, memory injection, bus op, tool calls with a retry, response) for the selected project.</p>
               <label className="mb-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={agentFail} onChange={e => setAgentFail(e.target.checked)} data-testid="agent-fail" /> Make it fail</label>
-              <Button onClick={agentRun} disabled={agentBusy || !projectId} data-testid="simulator-agent-run">{agentBusy ? 'Running...' : 'Run simulated agent execution'}</Button>
+              <Button onClick={agentRun} {...guard(agentBusy || !projectId)} data-testid="simulator-agent-run">{agentBusy ? 'Running...' : 'Run simulated agent execution'}</Button>
               {agentTrace && <p className="mt-2 text-sm" role="status" data-testid="simulator-agent-result">Trace created: <Link to={`/traces/${agentTrace}`} className="text-brand-600 underline dark:text-brand-100" data-testid="simulator-agent-trace-link">{agentTrace}</Link></p>}
               {agentErr && <p role="alert" className={`mt-2 ${errCls}`} data-testid="simulator-agent-error">{agentErr}</p>}
             </Card>

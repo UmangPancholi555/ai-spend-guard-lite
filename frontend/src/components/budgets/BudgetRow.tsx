@@ -6,6 +6,7 @@ import { Badge } from '../ui/Badge';
 import { Button, inputCls } from '../ui/Button';
 import { ConfirmDialog } from '../ui/Modal';
 import { useToast } from '../ui/Toast';
+import { useReadOnly } from '../auth/readOnly';
 import UtilizationBar, { utilState } from './UtilizationBar';
 import UtilizationHistoryChart from './UtilizationHistoryChart';
 import { validateLimit, validateName } from './validation';
@@ -21,11 +22,13 @@ export default function BudgetRow({ budget, util, reloadKey, onChanged }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const toast = useToast();
+  const { readOnly, guard } = useReadOnly();
 
   const nameErr = validateName(name);
   const limitErr = validateLimit(limit);
 
   async function run(fn: () => Promise<unknown>, after?: () => void, success?: string) {
+    if (readOnly) return;
     setBusy(true); setError(undefined);
     try { await fn(); after?.(); if (success) toast.success(success); onChanged(); }
     catch (e) { setError((e as Error).message); toast.error('Budget update failed', (e as Error).message); }
@@ -54,12 +57,12 @@ export default function BudgetRow({ budget, util, reloadKey, onChanged }: {
           <Button variant="secondary" type="button" onClick={() => setShowHistory(v => !v)} aria-expanded={showHistory} data-testid="budget-history-toggle">
             {showHistory ? 'Hide history' : 'History'}
           </Button>
-          <Button variant="secondary" type="button" disabled={busy} data-testid="budget-toggle-active"
+          <Button variant="secondary" type="button" {...guard(busy)} data-testid="budget-toggle-active"
             onClick={() => run(() => api.patch(`/budgets/${budget.id}`, { active: !budget.active }), undefined, budget.active ? `"${budget.name}" deactivated` : `"${budget.name}" activated`)}>
             {budget.active ? 'Deactivate' : 'Activate'}
           </Button>
-          <Button variant="secondary" type="button" onClick={() => { setEditing(e => !e); setError(undefined); }} aria-expanded={editing} data-testid="budget-edit">Edit</Button>
-          <Button variant="ghost" type="button" onClick={() => setConfirmDelete(true)} data-testid="budget-delete" className="text-red-700 dark:text-red-400">Delete</Button>
+          <Button variant="secondary" type="button" {...guard()} onClick={() => { setEditing(e => !e); setError(undefined); }} aria-expanded={editing} data-testid="budget-edit">Edit</Button>
+          <Button variant="ghost" type="button" {...guard()} onClick={() => setConfirmDelete(true)} data-testid="budget-delete" className="text-red-700 dark:text-red-400">Delete</Button>
         </div>
       </div>
 
@@ -78,7 +81,7 @@ export default function BudgetRow({ budget, util, reloadKey, onChanged }: {
         )}
       </div>
 
-      {editing && (
+      {editing && !readOnly && (
         <form className="mt-3 grid gap-3 rounded-md bg-slate-50 p-3 dark:bg-slate-950/40 sm:grid-cols-3" noValidate data-testid="budget-edit-form"
           onSubmit={e => { e.preventDefault(); if (nameErr || limitErr) return; run(() => api.patch(`/budgets/${budget.id}`, { name: name.trim(), limitUsd: limit.trim() }), () => setEditing(false), 'Budget updated'); }}>
           <label className="flex flex-col gap-1 text-xs font-medium">Name
@@ -97,7 +100,7 @@ export default function BudgetRow({ budget, util, reloadKey, onChanged }: {
         </form>
       )}
 
-      {confirmDelete && (
+      {confirmDelete && !readOnly && (
         <ConfirmDialog title="Delete budget?" confirmLabel="Confirm delete" busy={busy} error={error}
           message={<>Delete <strong>{budget.name}</strong> and its alert history? This cannot be undone.</>}
           confirmTestId="budget-delete-confirm" cancelTestId="budget-delete-cancel"

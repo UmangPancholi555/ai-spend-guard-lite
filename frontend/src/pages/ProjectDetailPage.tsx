@@ -17,9 +17,11 @@ import ProjectForm from '../components/projects/ProjectForm';
 import { errMessage } from '../components/projects/util';
 import { useToast } from '../components/ui/Toast';
 import MemoryPanel from '../components/memory/MemoryPanel';
+import { useReadOnly } from '../components/auth/readOnly';
 
 export default function ProjectDetailPage() {
   const toast = useToast();
+  const { readOnly, guard } = useReadOnly();
   const { id = '' } = useParams();
   const nav = useNavigate();
   const [editing, setEditing] = useState(false);
@@ -39,7 +41,7 @@ export default function ProjectDetailPage() {
   function reloadAll() { proj.reload(); activity.reload(); usage.reload(); budgets.reload(); util.reload(); }
 
   async function toggleArchive() {
-    if (!p) return;
+    if (!p || readOnly) return;
     setBusy(true); setActionError(undefined);
     try { await api.post(`/projects/${p.id}/${p.status === 'ACTIVE' ? 'archive' : 'unarchive'}`); toast.success(p.status === 'ACTIVE' ? `Archived "${p.name}"` : `Restored "${p.name}"`); reloadAll(); }
     catch (e) { setActionError(errMessage(e)); toast.error('Could not update project', errMessage(e)); }
@@ -47,7 +49,7 @@ export default function ProjectDetailPage() {
   }
 
   async function doDelete() {
-    if (!p) return;
+    if (!p || readOnly) return;
     setBusy(true); setActionError(undefined);
     try { await api.del(`/projects/${p.id}`); toast.success(`Deleted "${p.name}"`); nav('/projects'); }
     catch (e) { setActionError(errMessage(e)); setBusy(false); }
@@ -68,9 +70,9 @@ export default function ProjectDetailPage() {
               actions={<>
                 <Badge tone={p.status === 'ACTIVE' ? 'green' : 'slate'}>{p.status}</Badge>
                 {p.isTest && <Badge tone="blue">test</Badge>}
-                <Button variant="secondary" onClick={() => setEditing(true)} data-testid="project-detail-edit">Edit</Button>
-                <Button variant="secondary" onClick={toggleArchive} disabled={busy} data-testid="project-detail-archive">{p.status === 'ACTIVE' ? 'Archive' : 'Unarchive'}</Button>
-                <Button variant="danger" onClick={() => setConfirmDelete(true)} disabled={!p.isTest || busy} title={p.isTest ? 'Delete this test project' : 'Only test projects can be deleted'} data-testid="project-detail-delete">Delete</Button>
+                <Button variant="secondary" {...guard()} onClick={() => setEditing(true)} data-testid="project-detail-edit">Edit</Button>
+                <Button variant="secondary" onClick={toggleArchive} {...guard(busy)} data-testid="project-detail-archive">{p.status === 'ACTIVE' ? 'Archive' : 'Unarchive'}</Button>
+                <Button variant="danger" onClick={() => setConfirmDelete(true)} {...guard(!p.isTest || busy, p.isTest ? 'Delete this test project' : 'Only test projects can be deleted')} data-testid="project-detail-delete">Delete</Button>
               </>}
             />
             <DemoBanner />
@@ -151,7 +153,7 @@ export default function ProjectDetailPage() {
               </Card>
             </div>
 
-            {editing && (
+            {editing && !readOnly && (
               <Modal title={`Edit ${p.name}`} onClose={() => setEditing(false)} testId="project-edit-dialog">
                 <ProjectForm mode="edit" initial={p} onCancel={() => setEditing(false)} onSubmit={async v => {
                   await api.patch(`/projects/${p.id}`, { name: v.name, description: v.description || null, isTest: v.isTest });
@@ -159,7 +161,7 @@ export default function ProjectDetailPage() {
                 }} />
               </Modal>
             )}
-            {confirmDelete && (
+            {confirmDelete && !readOnly && (
               <ConfirmDialog
                 title="Delete test project?"
                 message={<>This permanently deletes <strong>{p.name}</strong> with its usage events, budgets and alerts.</>}

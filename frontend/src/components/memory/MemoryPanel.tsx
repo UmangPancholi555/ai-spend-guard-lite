@@ -10,6 +10,7 @@ import { useToast } from '../ui/Toast';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useApi';
 import { fmtInt } from '../../lib/format';
+import { useReadOnly } from '../auth/readOnly';
 
 const labelCls = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400';
 
@@ -21,7 +22,8 @@ function ItemForm({ initial, submitLabel, busy, error, onSubmit, onCancel, testP
   onSubmit: (d: Draft) => void; onCancel?: () => void;
 }) {
   const [d, setD] = useState<Draft>(initial);
-  const submit = (e: FormEvent) => { e.preventDefault(); onSubmit(d); };
+  const { readOnly, guard } = useReadOnly();
+  const submit = (e: FormEvent) => { e.preventDefault(); if (!readOnly) onSubmit(d); };
   return (
     <form onSubmit={submit} className="space-y-3" noValidate data-testid={`${testPrefix}-form`}>
       <div className="grid gap-3 sm:grid-cols-3">
@@ -43,7 +45,7 @@ function ItemForm({ initial, submitLabel, busy, error, onSubmit, onCancel, testP
       {error && <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200" data-testid={`${testPrefix}-error`}>{error}</p>}
       <div className="flex justify-end gap-2">
         {onCancel && <Button type="button" variant="secondary" onClick={onCancel} disabled={busy} data-testid={`${testPrefix}-cancel`}>Cancel</Button>}
-        <Button type="submit" disabled={busy} data-testid={`${testPrefix}-submit`}>{busy ? 'Saving...' : submitLabel}</Button>
+        <Button type="submit" {...guard(busy)} data-testid={`${testPrefix}-submit`}>{busy ? 'Saving...' : submitLabel}</Button>
       </div>
     </form>
   );
@@ -52,7 +54,8 @@ function ItemForm({ initial, submitLabel, busy, error, onSubmit, onCancel, testP
 /** Project memory (real MemoryStore). Enabled items are injected into every provider request of the project. */
 export default function MemoryPanel({ projectId }: { projectId: string }) {
   const toast = useToast();
-  const base = `/projects/${encodeURIComponent(projectId)}/memory`;
+  const { readOnly, guard } = useReadOnly();
+  const base =`/projects/${encodeURIComponent(projectId)}/memory`;
   const list = useAsync(() => api.get<MemoryItemDto[]>(base), [projectId]);
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string>();
@@ -65,6 +68,7 @@ export default function MemoryPanel({ projectId }: { projectId: string }) {
   const enabledTokens = enabled.reduce((s, i) => s + i.estimatedTokens, 0);
 
   async function run(fn: () => Promise<unknown>, done?: () => void, success?: string) {
+    if (readOnly) return;
     setBusy(true); setErr(undefined);
     try { await fn(); list.reload(); done?.(); if (success) toast.success(success); }
     catch (e) { setErr(errMessage(e)); toast.error('Memory update failed', errMessage(e)); }
@@ -79,7 +83,7 @@ export default function MemoryPanel({ projectId }: { projectId: string }) {
     <Card title="Project memory" actions={
       <div className="flex items-center gap-2">
         <SourceBadge source="ACTUAL" />
-        <Button variant="secondary" onClick={() => { setAdding(a => !a); setErr(undefined); }} data-testid="memory-add-toggle">{adding ? 'Close' : 'Add memory item'}</Button>
+        <Button variant="secondary" {...guard()} onClick={() => { setAdding(a => !a); setErr(undefined); }} data-testid="memory-add-toggle">{adding ? 'Close' : 'Add memory item'}</Button>
       </div>
     }>
       <p className="mb-3 text-xs text-slate-600 dark:text-slate-400" data-testid="memory-privacy-note">
@@ -87,7 +91,7 @@ export default function MemoryPanel({ projectId }: { projectId: string }) {
         is <strong>never written to logs, traces, events or activity</strong>: only counts, sizes, token estimates and hash prefixes are recorded.
         Up to {MEMORY_LIMITS.maxItemsPerProject} items, {fmtInt(MEMORY_LIMITS.maxContentChars)} characters each.
       </p>
-      {adding && (
+      {adding && !readOnly && (
         <div className="mb-4 rounded-md border border-slate-200 p-3 dark:border-slate-700" data-testid="memory-add-panel">
           <ItemForm testPrefix="memory-add" initial={EMPTY} submitLabel="Add item" busy={busy} error={err} onSubmit={create} onCancel={() => setAdding(false)} />
         </div>
@@ -103,7 +107,7 @@ export default function MemoryPanel({ projectId }: { projectId: string }) {
             <ul className="divide-y divide-slate-100 dark:divide-slate-800" data-testid="memory-list">
               {items.map(i => (
                 <li key={i.id} className="py-3" data-testid="memory-item" data-enabled={i.enabled}>
-                  {editId === i.id ? (
+                  {editId === i.id && !readOnly ? (
                     <ItemForm testPrefix="memory-edit" initial={{ title: i.title, category: i.category, content: i.content }} submitLabel="Save" busy={busy} error={err} onSubmit={d => update(i.id, d)} onCancel={() => setEditId(undefined)} />
                   ) : (
                     <div>
@@ -116,10 +120,10 @@ export default function MemoryPanel({ projectId }: { projectId: string }) {
                       <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-sm text-slate-600 dark:text-slate-300" data-testid="memory-item-content">{i.content}</p>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <label className="flex items-center gap-1.5 text-sm">
-                          <input type="checkbox" checked={i.enabled} disabled={busy} onChange={() => toggle(i)} data-testid="memory-item-toggle" /> Enabled
+                          <input type="checkbox" checked={i.enabled} {...guard(busy)} onChange={() => toggle(i)} data-testid="memory-item-toggle" /> Enabled
                         </label>
-                        <Button variant="secondary" onClick={() => { setEditId(i.id); setErr(undefined); }} disabled={busy} data-testid="memory-item-edit">Edit</Button>
-                        <Button variant="danger" onClick={() => setDelId(i.id)} disabled={busy} data-testid="memory-item-delete">Delete</Button>
+                        <Button variant="secondary" onClick={() => { setEditId(i.id); setErr(undefined); }} {...guard(busy)} data-testid="memory-item-edit">Edit</Button>
+                        <Button variant="danger" onClick={() => setDelId(i.id)} {...guard(busy)} data-testid="memory-item-delete">Delete</Button>
                       </div>
                     </div>
                   )}
@@ -130,7 +134,7 @@ export default function MemoryPanel({ projectId }: { projectId: string }) {
         )}
       </Async>
       {!adding && !editId && err && <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300" data-testid="memory-error">{err}</p>}
-      {delId && (
+      {delId && !readOnly && (
         <ConfirmDialog title="Delete memory item?" message="This permanently removes the item. Requests will no longer include it."
           confirmLabel="Delete item" busy={busy} error={err} confirmTestId="memory-delete-confirm" cancelTestId="memory-delete-cancel"
           onCancel={() => setDelId(undefined)} onConfirm={remove} />

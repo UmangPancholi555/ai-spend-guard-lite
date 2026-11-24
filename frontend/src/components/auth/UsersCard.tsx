@@ -12,12 +12,15 @@ import { fmtDateTime } from '../../lib/format';
 import { FormError, FormField } from './AuthShell';
 import { errMessage } from '../projects/util';
 import { useToast } from '../ui/Toast';
+import { useReadOnly } from './readOnly';
 
 type RowMode = { kind: 'reset'; id: string } | { kind: 'delete'; id: string } | undefined;
 
 export default function UsersCard({ currentUserId }: { currentUserId: string }) {
   const { data, error, loading, reload } = useAsync(() => api.get<ManagedUserDto[]>('/auth/users'), []);
   const toast = useToast();
+  // AccountPage only renders this card for admins; the guard is defence in depth should that ever change
+  const { readOnly, guard } = useReadOnly();
   const [message, setMessage] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [mode, setMode] = useState<RowMode>();
@@ -30,6 +33,7 @@ export default function UsersCard({ currentUserId }: { currentUserId: string }) 
   const [createError, setCreateError] = useState<string>();
 
   async function run(fn: () => Promise<unknown>, ok: string) {
+    if (readOnly) return;
     setBusy(true); setActionError(undefined); setMessage(undefined);
     try { await fn(); setMessage(ok); toast.success(ok); setMode(undefined); setResetPw(''); reload(); }
     catch (e) { setActionError(errMessage(e)); toast.error('User update failed', errMessage(e)); } finally { setBusy(false); }
@@ -38,6 +42,7 @@ export default function UsersCard({ currentUserId }: { currentUserId: string }) 
 
   async function create(e: FormEvent) {
     e.preventDefault();
+    if (readOnly) return;
     setCreateError(undefined); setMessage(undefined);
     if (newPw.length < PASSWORD_MIN) { setCreateError(`Password must be at least ${PASSWORD_MIN} characters.`); return; }
     setBusy(true);
@@ -66,7 +71,7 @@ export default function UsersCard({ currentUserId }: { currentUserId: string }) 
                   <Td><span className="font-medium">{u.username}</span> {self && <Badge tone="blue">you</Badge>}</Td>
                   <Td>
                     <select aria-label={`Role for ${u.username}`} data-testid={`account-user-role-${u.username}`} className={inputCls}
-                      value={u.role} disabled={busy}
+                      value={u.role} {...guard(busy)}
                       onChange={e => patch(u, { role: e.target.value as UserRole }, `Role of "${u.username}" set to ${e.target.value}.`)}>
                       <option value="ADMIN">ADMIN</option>
                       <option value="VIEWER">VIEWER</option>
@@ -82,21 +87,21 @@ export default function UsersCard({ currentUserId }: { currentUserId: string }) 
                         <label className="sr-only" htmlFor={`reset-${u.id}`}>New password for {u.username}</label>
                         <input id={`reset-${u.id}`} type="password" autoComplete="new-password" placeholder="New password" required minLength={PASSWORD_MIN}
                           className={inputCls} value={resetPw} onChange={e => setResetPw(e.target.value)} data-testid="account-reset-password-input" />
-                        <Button type="submit" disabled={busy || resetPw.length < PASSWORD_MIN} data-testid="account-reset-confirm">Set password</Button>
+                        <Button type="submit" {...guard(busy || resetPw.length < PASSWORD_MIN)} data-testid="account-reset-confirm">Set password</Button>
                         <Button type="button" variant="ghost" onClick={() => { setMode(undefined); setResetPw(''); }}>Cancel</Button>
                       </form>
                     ) : editing === 'delete' ? (
                       <span className="flex flex-wrap items-center gap-2">
                         <span className="text-sm">Delete {u.username}?</span>
-                        <Button variant="danger" disabled={busy} data-testid="account-delete-confirm"
+                        <Button variant="danger" {...guard(busy)} data-testid="account-delete-confirm"
                           onClick={() => run(() => api.del(`/auth/users/${encodeURIComponent(u.id)}`), `User "${u.username}" deleted.`)}>Confirm delete</Button>
                         <Button variant="ghost" onClick={() => setMode(undefined)}>Cancel</Button>
                       </span>
                     ) : (
                       <span className="flex flex-wrap gap-2">
-                        <Button variant="secondary" disabled={busy} data-testid={`account-user-reset-${u.username}`} onClick={() => { setMode({ kind: 'reset', id: u.id }); setResetPw(''); }}>Reset password</Button>
-                        {u.locked && <Button variant="secondary" disabled={busy} data-testid={`account-user-unlock-${u.username}`} onClick={() => patch(u, { unlock: true }, `"${u.username}" unlocked.`)}>Unlock</Button>}
-                        <Button variant="danger" disabled={busy || self} title={self ? 'You cannot delete your own account' : undefined}
+                        <Button variant="secondary" {...guard(busy)} data-testid={`account-user-reset-${u.username}`} onClick={() => { setMode({ kind: 'reset', id: u.id }); setResetPw(''); }}>Reset password</Button>
+                        {u.locked && <Button variant="secondary" {...guard(busy)} data-testid={`account-user-unlock-${u.username}`} onClick={() => patch(u, { unlock: true }, `"${u.username}" unlocked.`)}>Unlock</Button>}
+                        <Button variant="danger" {...guard(busy || self, self ? 'You cannot delete your own account' : undefined)}
                           data-testid={`account-user-delete-${u.username}`} onClick={() => setMode({ kind: 'delete', id: u.id })}>Delete</Button>
                       </span>
                     )}
@@ -127,7 +132,7 @@ export default function UsersCard({ currentUserId }: { currentUserId: string }) 
             <option value="ADMIN">ADMIN</option>
           </select>
         </FormField>
-        <Button type="submit" disabled={busy || !newName || !newPw} data-testid="account-create-user">Create user</Button>
+        <Button type="submit" {...guard(busy || !newName || !newPw)} data-testid="account-create-user">Create user</Button>
       </form>
     </Card>
   );
