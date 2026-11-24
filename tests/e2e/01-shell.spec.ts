@@ -36,7 +36,9 @@ test.describe('app shell', () => {
 
   test('unknown client route renders a not-found message inside the shell; unknown API route is a JSON 404', async ({ page, request }) => {
     await page.goto('/definitely/not/a/page');
-    await expect(page.getByText('Page not found')).toBeVisible();
+    // Text also appears in the sr-only route announcer, so target the h1 explicitly.
+    await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
+    await expect(page.getByTestId('route-announcer')).toHaveText(/Page not found/);
     await expect(page.getByTestId('sidebar')).toBeVisible();
     const res = await request.get('/api/nope');
     expect(res.status()).toBe(404);
