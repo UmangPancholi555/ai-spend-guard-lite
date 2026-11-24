@@ -111,7 +111,8 @@ describe('full pipeline: POST /providers/requests', () => {
       expect(s.spanId).toMatch(HEX16);
       expect(s.traceId).toBe(res.traceId);
       expect(s.status).toBe('OK');
-      expect(s.source).toBe('ACTUAL');
+      // real lifecycle spans are ACTUAL; the mock provider span is a simulation and always SIMULATED
+      expect(s.source, s.name).toBe(s.name === 'provider.mock' ? 'SIMULATED' : 'ACTUAL');
       expect(s.endedAt).toMatch(ISO);
       expect(ids.has(s.spanId)).toBe(false);
       ids.add(s.spanId);
@@ -121,7 +122,9 @@ describe('full pipeline: POST /providers/requests', () => {
     // timeline sorted by ts
     const ts = timeline.map((e: any) => Date.parse(e.ts));
     expect([...ts].sort((x, y) => x - y)).toEqual(ts);
-    expect(timeline.every((e: any) => e.source === 'ACTUAL')).toBe(true);
+    // every timeline entry is ACTUAL except the provider response (the mock provider is a simulation)
+    for (const e of timeline) expect(e.source, `${e.step} ${e.label}`).toBe(e.step === 'response.generated' ? 'SIMULATED' : 'ACTUAL');
+    expect(timeline.filter((e: any) => e.step === 'response.generated').map((e: any) => e.label)).toEqual(['Response generated (provider.mock)']);
 
     // ExecutionLog rows for this trace
     const logs = await listAll(ctx, `/api/logs?traceId=${res.traceId}`);
@@ -271,7 +274,10 @@ describe('failure modes', () => {
       expect(e.level).toBe('ERROR');
       expect(cats).toContain(e.errorCategory);
       expect(e.errorMessage).toBeTruthy();
-      expect(e.source).toBe('ACTUAL');
+      expect(e.source).toBe('SIMULATED'); // provider failure comes from the mock provider: a simulation
+      // the real request lifecycle failure (trace root) stays ACTUAL
+      const traceFail = (await listAll(ctx, `/api/logs?traceId=${res.traceId}`)).find((l: any) => l.eventType === 'request.failed' && l.operation === 'provider.request');
+      expect(traceFail?.source).toBe('ACTUAL');
       // the same entry is in /logs with FAILURE and in JSONL
       const jl = readJsonl(ctx).find(l => l.id === e.id);
       expect(jl?.errorCategory).toBe(e.errorCategory);

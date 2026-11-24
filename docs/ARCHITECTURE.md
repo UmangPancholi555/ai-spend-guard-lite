@@ -140,7 +140,8 @@ client
            and emit context event MODIFIED v3 (truncation). No enabled items: nothing is emitted.
  7. REAL tool calls (preflight, never blocking): pricing.lookup, budget.status  -> tool events + TOOL spans
  8.   span provider.mock  (PROVIDER)   deterministic mock completion over (injected memory + prompt); failure modes error|timeout|rate_limit
-        - on failure: instr.recordError(category PROVIDER|TIMEOUT)
+        - ALWAYS source SIMULATED (a simulation, whatever the request source); every other lifecycle span stays ACTUAL
+        - on failure: instr.recordError(category PROVIDER|TIMEOUT, source SIMULATED)
       context event UPDATED (response / usage appended)
  9.   span cost.calculate (COST)       CostService.calculate(tokens, pricing version effective at event time)
 10.   span usage.persist  (INTERNAL)   INSERT UsageEvent (BigInt pico columns, metadata JSON incl. memory / context / tools summaries)

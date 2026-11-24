@@ -56,7 +56,8 @@ describe('executeMockRequest: instrumentation order and trace shape', () => {
     const prov = instr.spans.find(s => s.name === 'provider.mock')!;
     expect(prov.kind).toBe('PROVIDER');
     expect(prov.attributes.simulated).toBe(true);
-    expect(prov.source).toBe('ACTUAL');
+    expect(prov.source).toBe('SIMULATED'); // the mock provider is a simulation, even for a live (ACTUAL) request
+    expect(instr.spans.filter(s => ['cost.calculate', 'usage.persist', 'budget.evaluate'].includes(s.name)).every(s => s.source === 'ACTUAL')).toBe(true);
     expect(instr.spans.filter(s => ['provider.mock', 'cost.calculate', 'usage.persist', 'budget.evaluate'].includes(s.name)).map(s => s.kind)).toEqual(['PROVIDER', 'COST', 'INTERNAL', 'BUDGET']);
     expect(instr.spans.filter(s => s.kind === 'TOOL').map(s => s.name)).toEqual(['tool.pricing.lookup', 'tool.budget.status']);
     expect(res.traceId).toBe(instr.traces[0]!.traceId);
@@ -70,6 +71,12 @@ describe('executeMockRequest: instrumentation order and trace shape', () => {
     const order = ['span.end:provider.mock', 'recordError', 'span.start:context.updated', 'span.start:cost.calculate', 'span.start:usage.persist', 'recordActivity:request.failed', 'span.start:budget.evaluate', 'trace.end'];
     expect(order.map(n => names.indexOf(n)).every((i, k, arr) => i >= 0 && (k === 0 || i > arr[k - 1]!))).toBe(true);
     expect(instr.spans.find(s => s.name === 'provider.mock')!.error).toMatchObject({ category: 'TIMEOUT' });
+    // the provider failure is a simulation: span + error record SIMULATED; the real lifecycle spans and trace stay ACTUAL
+    expect(instr.spans.find(s => s.name === 'provider.mock')!.source).toBe('SIMULATED');
+    const errRec = instr.calls.find(c => c.fn === 'recordError') as any;
+    expect(errRec).toMatchObject({ source: 'SIMULATED', operation: 'provider.mock', category: 'TIMEOUT' });
+    expect(instr.traces[0]!.source).toBe('ACTUAL');
+    expect(instr.spans.filter(s => s.name !== 'provider.mock' && s.source === 'SIMULATED')).toHaveLength(0);
     const end = instr.calls.find(c => c.fn === 'trace.end')!;
     expect(end.error).toBe(true);
     expect((end.errorInfo as any).message).toMatch(/simulated/i);
@@ -287,10 +294,11 @@ describe('simulated agent activity', () => {
       expect(rootChildren.has(sp.parentSpanId)).toBe(true);
     }
     // the request lifecycle spans stay ACTUAL
-    expect(instr.spans.filter(s => ['provider.mock', 'cost.calculate', 'usage.persist', 'budget.evaluate'].includes(s.name)).every(s => s.source === 'ACTUAL')).toBe(true);
+    expect(instr.spans.filter(s => ['cost.calculate', 'usage.persist', 'budget.evaluate'].includes(s.name)).every(s => s.source === 'ACTUAL')).toBe(true);
+    expect(instr.spans.find(s => s.name === 'provider.mock')!.source).toBe('SIMULATED');
     // agent activity comes after budget.evaluate and before trace.end
     const names = instr.names();
-    const simStart = instr.spans.findIndex(sp => sp.source === 'SIMULATED');
+    const simStart = instr.spans.findIndex(sp => sp.source === 'SIMULATED' && sp.name !== 'provider.mock');
     expect(simStart).toBeGreaterThan(instr.spans.findIndex(sp => sp.name === 'budget.evaluate'));
     expect(names[names.length - 1]).toBe('trace.end');
   });
@@ -299,7 +307,8 @@ describe('simulated agent activity', () => {
     fresh();
     await executeMockRequest(deps, req(), { latency: false });
     expect(instr.calls.some(c => c.source === 'SIMULATED')).toBe(false);
-    expect(instr.spans.some(sp => sp.source === 'SIMULATED')).toBe(false);
+    // only the always-simulated provider span carries SIMULATED; nothing else without agent activity
+    expect(instr.spans.filter(sp => sp.source === 'SIMULATED').map(sp => sp.name)).toEqual(['provider.mock']);
     fresh();
     await executeMockRequest(deps, req({ simulateAgentActivity: true }), { latency: false });
     const blob = JSON.stringify(instr.calls.filter(c => c.source === 'SIMULATED' && ['recordContext', 'recordMemory', 'recordBus', 'recordTool'].includes(c.fn as string)));

@@ -55,8 +55,19 @@ test.describe('traces & execution timeline', () => {
     }
     // no memory items on this project -> memory injection exists ONLY as the simulated demo (nothing is fabricated as actual)
     expect(api.timeline.some((e: any) => e.step.startsWith('memory.injection') && e.source === 'ACTUAL')).toBe(false);
-    for (const step of ['execution.started', 'execution.completed', 'response.generated']) {
+    for (const step of ['execution.started', 'execution.completed']) {
       await expect(page.locator(`[data-testid="timeline-entry"][data-step="${step}"]`).first()).toHaveAttribute('data-source', 'ACTUAL');
+    }
+    // the mock provider's response is a simulation: SIMULATED badge, even though the request itself is a live (ACTUAL) one
+    const response = page.locator('[data-testid="timeline-entry"][data-step="response.generated"]');
+    await expect(response).toHaveCount(1);
+    await expect(response).toHaveAttribute('data-source', 'SIMULATED');
+    await expect(response).toContainText('provider.mock');
+    await expect(response.getByTestId('timeline-source')).toHaveText('DEMO / SIMULATED');
+    expect(api.spans.find((s: any) => s.name === 'provider.mock').source).toBe('SIMULATED');
+    // real lifecycle spans stay ACTUAL
+    for (const n of ['provider.request', 'cost.calculate', 'usage.persist', 'budget.evaluate']) {
+      expect(api.spans.find((s: any) => s.name === n).source, n).toBe('ACTUAL');
     }
     // the retried tool call fails once (a FAILED marker) but the trace itself is OK
     await expect(page.getByTestId('timeline-entry-failed')).toHaveCount(api.timeline.filter((e: any) => e.status === 'FAILURE').length);

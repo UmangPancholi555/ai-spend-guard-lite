@@ -52,6 +52,19 @@ describe('buildTimeline', () => {
     expect(tl.find(e => e.refId === 'c')!.step).toBe('memory.injection.started');
   });
 
+  it('provenance: a SIMULATED provider span yields a SIMULATED response.generated entry while the ACTUAL trace/spans keep ACTUAL', () => {
+    const tl = buildTimeline(input({
+      spans: [
+        rootSpan,
+        span({ spanId: 'p', name: 'provider.mock', kind: 'PROVIDER', source: 'SIMULATED', endedAt: '2025-01-01T00:00:00.400Z' }),
+        span({ spanId: 'c', name: 'cost.calculate', kind: 'COST', source: 'ACTUAL' }),
+      ],
+    }));
+    expect(tl.find(e => e.step === 'response.generated')).toMatchObject({ label: 'Response generated (provider.mock)', source: 'SIMULATED' });
+    expect(tl.find(e => e.step === 'span' && e.label === 'cost.calculate')!.source).toBe('ACTUAL');
+    expect(tl.filter(e => e.step.startsWith('execution.')).every(e => e.source === 'ACTUAL')).toBe(true);
+  });
+
   it('R5/R6: error-log duplicates of the trace failure are dropped, response.generated log deduped by span', () => {
     const tl = buildTimeline(input({
       trace: trace({ status: 'ERROR', errorMessage: 'bad' }),

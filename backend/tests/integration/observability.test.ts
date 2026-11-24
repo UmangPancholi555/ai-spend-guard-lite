@@ -7,7 +7,7 @@ let proj: { id: string };
 beforeAll(async () => { ctx = await createTestApp(); proj = await mkProject(ctx, 'obs-proj'); });
 afterAll(async () => { await ctx.close(); cleanupTestDir(ctx.dir); });
 
-const SIM_KINDS = ['MEMORY', 'BUS', 'TOOL', 'CONTEXT'];
+const SIM_KINDS = ['MEMORY', 'BUS', 'TOOL', 'CONTEXT', 'PROVIDER']; // PROVIDER = the always-simulated provider.mock span
 
 describe('simulated agent activity correlation & labelling', () => {
   it('timeline of a request with simulateAgentActivity correlates SIMULATED context/memory/bus/tool events next to the REAL (ACTUAL) runtime events', async () => {
@@ -30,7 +30,9 @@ describe('simulated agent activity correlation & labelling', () => {
     }
     expect(new Set(timeline.filter((e: any) => e.refKind === 'memory').map((e: any) => e.source))).toEqual(new Set(['SIMULATED']));
     for (const e of timeline) {
-      if (e.step === 'execution.started' || e.step === 'execution.completed' || e.step === 'response.generated') expect(e.source).toBe('ACTUAL');
+      if (e.step === 'execution.started' || e.step === 'execution.completed') expect(e.source).toBe('ACTUAL');
+      // the mock provider is a simulation: its response entry is always SIMULATED, never ACTUAL
+      if (e.step === 'response.generated') { expect(e.source).toBe('SIMULATED'); expect(e.label).toContain('provider.mock'); }
     }
     // simulated spans are SIMULATED, marked simulated and children of the ACTUAL root; real runtime spans are ACTUAL and never marked simulated
     const root = spans.find((s: any) => s.parentSpanId === null);
