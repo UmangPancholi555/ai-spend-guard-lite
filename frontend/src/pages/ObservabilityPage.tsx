@@ -13,6 +13,7 @@ import { useAsync } from '../lib/useApi';
 import { fmtDateTime, fmtInt, fmtMs, fmtPct } from '../lib/format';
 import PerformancePanel from '../components/observability/PerformancePanel';
 import SourcesPanel from '../components/observability/SourcesPanel';
+import TraceExplorer from '../components/traces/TraceExplorer';
 import EventExplorer from '../components/observability/EventExplorer';
 import { Field, TraceLink } from '../components/observability/common';
 
@@ -112,6 +113,10 @@ export default function ObservabilityPage() {
           );
         })()}
       </Async>
+
+      <Card title="Trace explorer & execution timeline">
+        <TraceExplorer from={from} reloadKey={tick} />
+      </Card>
 
       <SourcesPanel />
       <PerformancePanel from={from} bucket={range.bucket} reloadKey={tick} />

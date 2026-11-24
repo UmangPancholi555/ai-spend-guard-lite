@@ -1,5 +1,5 @@
 import { test, expect } from './support/test';
-import { apiCreateProject, apiGet, apiRequest, uniq, watchConsole } from './support/helpers';
+import { apiCreateProject, apiGet, apiRequest, expectNoHorizontalOverflow, uniq, watchConsole } from './support/helpers';
 
 const iso = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString();
 
@@ -111,6 +111,58 @@ test.describe('observability', () => {
     await expect(ex.getByTestId('event-row').filter({ hasNotText: 'read_file' })).toHaveCount(0);
     await expect(ex.getByTestId('event-row').first()).toBeVisible();
     await expect(ex.getByTestId('export-tools-jsonl')).toBeVisible();
+  });
+
+  test('trace explorer: pick a recent trace (filter by project/status) and see its execution timeline on the Observability page', async ({ page, request }) => {
+    const errors = watchConsole(page);
+    const p = await apiCreateProject(request, uniq('Explorer Proj'));
+    const ok = await apiRequest(request, p.id, { simulateAgentActivity: true, prompt: 'explorer ok' });
+    const bad = await apiRequest(request, p.id, { simulateFailure: 'timeout', prompt: 'explorer fail' });
+    const okApi = await apiGet(request, `/api/traces/${ok.traceId}`);
+    const badApi = await apiGet(request, `/api/traces/${bad.traceId}`);
+
+    await page.goto('/observability');
+    const explorer = page.getByTestId('trace-explorer');
+    await expect(explorer).toBeVisible();
+    await expect(explorer.getByTestId('explorer-trace').first()).toBeVisible();
+
+    // filter by project: only this project's traces are listed, the newest one is selected and its timeline is rendered
+    await explorer.getByTestId('explorer-filter-project').selectOption(p.id);
+    await expect(explorer.getByTestId('explorer-trace')).toHaveCount(2);
+    await expect(explorer.getByTestId('explorer-trace').first()).toHaveAttribute('data-trace-id', bad.traceId); // newest first
+    await expect(explorer.getByTestId('explorer-selected')).toHaveAttribute('data-trace-id', bad.traceId);
+    await expect(explorer.getByTestId('timeline-entry')).toHaveCount(badApi.timeline.length);
+
+    // filter by status: only the failed trace remains
+    await explorer.getByTestId('explorer-filter-status').selectOption('ERROR');
+    await expect(explorer.getByTestId('explorer-trace')).toHaveCount(1);
+    await expect(explorer.getByTestId('explorer-trace')).toHaveAttribute('data-status', 'ERROR');
+    await expect(explorer.getByTestId('explorer-trace-error')).toBeVisible();
+    await expect(explorer.getByTestId('timeline-entry-failed').first()).toBeVisible();
+
+    // back to all statuses and select the successful trace: its timeline mirrors the API, with honest ACTUAL / SIMULATED badges
+    await explorer.getByTestId('explorer-filter-status').selectOption('');
+    await expect(explorer.getByTestId('explorer-trace')).toHaveCount(2);
+    await explorer.locator(`[data-testid="explorer-trace"][data-trace-id="${ok.traceId}"]`).click();
+    await expect(explorer.getByTestId('explorer-selected')).toHaveAttribute('data-trace-id', ok.traceId);
+    await expect(explorer.getByTestId('timeline-entry')).toHaveCount(okApi.timeline.length);
+    await expect(explorer.locator('[data-testid="timeline-entry"][data-step="execution.started"]')).toHaveAttribute('data-source', 'ACTUAL');
+    await expect(explorer.locator('[data-testid="timeline-entry"][data-step="response.generated"]')).toHaveAttribute('data-source', 'SIMULATED');
+    await expect(explorer.getByTestId('explorer-open-trace')).toHaveAttribute('href', `/traces/${ok.traceId}`);
+
+    // an impossible combination shows an empty state and no stale timeline
+    await explorer.getByTestId('explorer-filter-status').selectOption('RUNNING');
+    await expect(explorer.getByTestId('explorer-trace')).toHaveCount(0);
+    await expect(explorer.getByTestId('empty-state').first()).toContainText('No traces match these filters');
+    await expect(explorer.getByTestId('explorer-selected')).toHaveCount(0);
+
+    // mobile: no horizontal overflow with a timeline open
+    await explorer.getByTestId('explorer-filter-reset').click();
+    await expect(explorer.getByTestId('explorer-selected')).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(explorer.getByTestId('timeline-entry').first()).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    expect(errors, errors.join('\n')).toEqual([]);
   });
 
   test('performance panel renders latency cards, charts and per-operation stats', async ({ page }) => {
