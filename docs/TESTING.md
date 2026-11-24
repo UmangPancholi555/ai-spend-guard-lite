@@ -34,7 +34,14 @@ npm run test:e2e              # = playwright test (see section 6)
 ```
 
 Vitest configuration (`backend/vitest.config.ts`): includes `tests/**/*.test.ts`, test timeout 30 s, hook timeout 60 s, forks pool.
-The backend workspace also has `@vitest/coverage-v8` installed, so coverage can be produced with `npm run test -w backend -- --coverage` (output goes to the git-ignored `coverage/`).
+**Coverage.** `npm run test:coverage` (root) runs the backend and the frontend Vitest suites with `@vitest/coverage-v8` (same version as `vitest`, a devDependency of both workspaces). Each workspace also has its own `npm run test:coverage -w backend|frontend`. Reporters: `text` (summary table in the terminal) and `html`; output goes to the git-ignored `coverage/backend/index.html` and `coverage/frontend/index.html`. Coverage is measured over `backend/src/**` and `frontend/src/**` (so files no test imports count as 0 %). Coverage only measures the Vitest suites: the Playwright e2e run is not instrumented, so frontend pages that are only exercised end to end show as uncovered here.
+
+Latest run (`npm run test:coverage`, v8 provider, all tests passing):
+
+| Workspace | Statements | Branches | Functions | Lines |
+|---|---|---|---|---|
+| Backend (`backend/src`, 741 tests) | 96.52 % | 91.21 % | 96.05 % | 96.52 % |
+| Frontend (`frontend/src`, 35 tests) | 26.18 % | 56.06 % | 26.44 % | 26.18 % |
 
 Requirements: Node >= 20, the Prisma client generated (`npm install` does it), and `npx prisma` available on the PATH of the test process (it is a root dev dependency). No `.env` or running server is needed for `npm test`; each test passes its own `DATABASE_URL` to the Prisma CLI.
 
