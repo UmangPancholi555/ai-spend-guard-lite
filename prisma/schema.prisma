@@ -182,12 +182,14 @@ model Trace {
   stack        String?
   createdAt    DateTime  @default(now())
 
-  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  project Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
   spans   Span[]
+  tasks   BackgroundTask[]
 
   @@index([startedAt])
   @@index([status])
   @@index([projectId])
+  @@index([projectId, startedAt])
   @@index([requestId])
 }
 
@@ -207,7 +209,10 @@ model Span {
   stack        String?
   attributes   String    @default("{}") // JSON (metadata only, never sensitive content)
 
-  trace Trace @relation(fields: [traceId], references: [traceId], onDelete: Cascade)
+  trace    Trace  @relation(fields: [traceId], references: [traceId], onDelete: Cascade)
+  // span tree: a span whose parent row is gone keeps existing as a root (SetNull). Spans are only ever deleted together with their trace.
+  parent   Span?  @relation("SpanTree", fields: [parentSpanId], references: [spanId], onDelete: SetNull)
+  children Span[] @relation("SpanTree")
 
   @@index([traceId])
   @@index([parentSpanId])
@@ -242,6 +247,8 @@ model ExecutionLog {
   @@index([operation])
   @@index([category, ts])
   @@index([errorCategory])
+  @@index([projectId])
+  @@index([requestId])
 }
 
 model MemoryEvent {
@@ -265,6 +272,7 @@ model MemoryEvent {
   @@index([traceId])
   @@index([createdAt])
   @@index([operationId])
+  @@index([projectId])
   @@index([status])
 }
 
@@ -289,6 +297,7 @@ model BusEvent {
   @@index([traceId])
   @@index([createdAt])
   @@index([operationName])
+  @@index([projectId])
   @@index([status])
 }
 
@@ -317,6 +326,8 @@ model ToolCallEvent {
   @@index([createdAt])
   @@index([status])
   @@index([toolCallId])
+  @@index([projectId])
+  @@index([requestId])
 }
 
 model ContextEvent {
@@ -338,6 +349,7 @@ model ContextEvent {
 
   @@index([traceId])
   @@index([contextId])
+  @@index([projectId])
   @@index([createdAt])
 }
 
@@ -356,9 +368,13 @@ model BackgroundTask {
   stack        String?
   createdAt    DateTime  @default(now())
 
+  // tasks are kept forever (never swept) while finished traces are swept by retention: the link is cleared, the task stays
+  trace Trace? @relation(fields: [traceId], references: [traceId], onDelete: SetNull)
+
   @@index([status])
   @@index([createdAt])
   @@index([kind])
+  @@index([traceId])
 }
 
 model AppSetting {

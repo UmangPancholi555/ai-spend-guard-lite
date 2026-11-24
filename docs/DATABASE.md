@@ -1,6 +1,6 @@
 # Database
 
-AI Spend Guard Lite uses **SQLite** through **Prisma 6** (`prisma/schema.prisma`). The migration set lives in `prisma/migrations/` (2 migrations, 20 models).
+AI Spend Guard Lite uses **SQLite** through **Prisma 6** (`prisma/schema.prisma`). The migration set lives in `prisma/migrations/` (4 migrations, 20 models).
 
 ## 1. Conventions
 
@@ -19,11 +19,15 @@ Provider 1---* Model
 PricingConfig 1---* UsageEvent *---1 Project 1---* Budget 1---* BudgetAlert
                                       |  1
                                       |  *
-                          ActivityEvent (SetNull)     Trace (SetNull) 1---* Span (Cascade)
+                          ActivityEvent (SetNull)     Trace (SetNull) 1---* Span (Cascade) ; Span 1---* Span (parent, SetNull)
+                                                                  |
+User 1---* Session (Cascade)                     BackgroundTask.traceId -> Trace (SetNull)
+                                                 ProjectMemoryItem.projectId -> Project (Cascade; migration memory_cascade)
 
-User 1---* Session (Cascade)                     ProjectMemoryItem.projectId -> Project (Cascade; migration memory_cascade)
-
-Standalone (no FKs): ExecutionLog, MemoryEvent, BusEvent, ToolCallEvent, ContextEvent, BackgroundTask, AppSetting
+Correlated by plain id strings, no FK (see "Relations that are intentionally not foreign keys"):
+  ExecutionLog, MemoryEvent, BusEvent, ToolCallEvent, ContextEvent (traceId / spanId / projectId), UsageEvent.traceId, ActivityEvent.traceId,
+  PricingConfig.providerKey / modelName
+Standalone: AppSetting
 ```
 
 | Relation | On delete |
@@ -36,6 +40,8 @@ Standalone (no FKs): ExecutionLog, MemoryEvent, BusEvent, ToolCallEvent, Context
 | `ActivityEvent.projectId -> Project` (nullable) | SET NULL |
 | `Trace.projectId -> Project` (nullable) | SET NULL |
 | `Span.traceId -> Trace.traceId` | CASCADE |
+| `Span.parentSpanId -> Span.spanId` (nullable, self relation) | SET NULL |
+| `BackgroundTask.traceId -> Trace.traceId` (nullable) | SET NULL |
 | `Session.userId -> User` | CASCADE |
 
 Deleting a (test) project therefore removes its usage events, budgets and their alerts; its activity events and traces survive with `projectId = NULL`.
@@ -268,12 +274,14 @@ Indexes / uniques:
 - `index(startedAt)`
 - `index(status)`
 - `index(projectId)`
+- `index(projectId, startedAt)`
 - `index(requestId)`
 
 Relations:
 
 - `project` -> `Project?` `@relation(fields: [projectId], references: [id], onDelete: SetNull)`
 - `spans` -> `Span[]` 
+- `tasks` -> `BackgroundTask[]` (migration `relations_and_indexes`)
 
 ### Span
 
@@ -282,7 +290,7 @@ Relations:
 | `id` | String | required, PK, default cuid() |  |
 | `spanId` | String | required, unique | 16 hex |
 | `traceId` | String | required |  |
-| `parentSpanId` | String | nullable |  |
+| `parentSpanId` | String | nullable | self relation `SpanTree` (parent span; SET NULL) |
 | `name` | String | required |  |
 | `kind` | String | required | REQUEST / CONTEXT / MEMORY / BUS / TOOL / PROVIDER / COST / BUDGET / INTERNAL |
 | `status` | String | required | RUNNING / OK / ERROR |
@@ -303,6 +311,8 @@ Indexes / uniques:
 Relations:
 
 - `trace` -> `Trace` `@relation(fields: [traceId], references: [traceId], onDelete: Cascade)`
+- `parent` -> `Span?` `@relation("SpanTree", fields: [parentSpanId], references: [spanId], onDelete: SetNull)`
+- `children` -> `Span[]` 
 
 ### ExecutionLog
 
@@ -336,6 +346,8 @@ Indexes / uniques:
 - `index(operation)`
 - `index(category, ts)`
 - `index(errorCategory)`
+- `index(projectId)`
+- `index(requestId)`
 
 ### MemoryEvent
 
@@ -363,6 +375,7 @@ Indexes / uniques:
 - `index(traceId)`
 - `index(createdAt)`
 - `index(operationId)`
+- `index(projectId)`
 - `index(status)`
 
 ### BusEvent
@@ -391,6 +404,7 @@ Indexes / uniques:
 - `index(traceId)`
 - `index(createdAt)`
 - `index(operationName)`
+- `index(projectId)`
 - `index(status)`
 
 ### ToolCallEvent
@@ -423,6 +437,8 @@ Indexes / uniques:
 - `index(createdAt)`
 - `index(status)`
 - `index(toolCallId)`
+- `index(projectId)`
+- `index(requestId)`
 
 ### ContextEvent
 
@@ -448,6 +464,7 @@ Indexes / uniques:
 
 - `index(traceId)`
 - `index(contextId)`
+- `index(projectId)`
 - `index(createdAt)`
 
 ### BackgroundTask
@@ -473,6 +490,11 @@ Indexes / uniques:
 - `index(status)`
 - `index(createdAt)`
 - `index(kind)`
+- `index(traceId)`
+
+Relations:
+
+- `trace` -> `Trace?` `@relation(fields: [traceId], references: [traceId], onDelete: SetNull)` (migration `relations_and_indexes`)
 
 ### AppSetting
 
@@ -543,7 +565,9 @@ Indexes / uniques: `index(projectId, enabled)`. Limit: 200 items per project (40
 
 ## 4. Notes on integrity
 
-- **No FK** on `ExecutionLog`, `MemoryEvent`, `BusEvent`, `ToolCallEvent`, `ContextEvent` (`traceId`, `spanId`, `projectId`): these are append-only logs correlated by id, and the retention sweep deletes them (and traces) independently.
+- **No FK** on `ExecutionLog`, `MemoryEvent`, `BusEvent`, `ToolCallEvent`, `ContextEvent` (`traceId`, `spanId`, `projectId`): these are append-only logs correlated by id, and the retention sweep deletes them (and traces) independently. Why this is deliberate is spelled out in "Relations that are intentionally not foreign keys" below. They do have indexes on `projectId` (and `requestId` where queried) so correlation lookups stay cheap.
+- **Span tree**: `Span.parentSpanId` is a self relation (`ON DELETE SET NULL`). Spans are only deleted together with their trace (cascade), so the action never fires in practice; it keeps a span valid (as a root) if a parent row is ever missing.
+- **Background tasks**: `BackgroundTask.traceId -> Trace.traceId` (`ON DELETE SET NULL`). Tasks are never swept by retention but finished traces are, so the sweep clears the link instead of leaving a dangling id.
 - **Budget uniqueness** per `(projectId or global, period)` is enforced in application code, not by a DB constraint (nullable `projectId` in a SQLite unique index would allow duplicates for global budgets).
 - **Alert uniqueness** is enforced by the DB: `BudgetAlert unique(budgetId, periodStart, threshold)`.
 - **Pricing uniqueness**: `PricingConfig unique(providerKey, modelName, version)`. The fallback row is `providerKey = "*"`, `modelName = "*"`.
@@ -551,6 +575,20 @@ Indexes / uniques: `index(projectId, enabled)`. Limit: 200 items per project (40
 - **Auth uniqueness**: `User.username` and `Session.tokenHash` are unique. The first administrator is inserted with an atomic `INSERT ... SELECT ... WHERE NOT EXISTS (SELECT 1 FROM "User")`, so concurrent first-run setups cannot create two admins. "Last admin" protection is application code under an in-process lock.
 - **Memory rows**: `ProjectMemoryItem.projectId` is a foreign key with cascade delete, so deleting a (test) project also deletes its memory items.
 - **Retention never touches** `User`, `Session`, `ProjectMemoryItem`.
+
+### Relations that are intentionally not foreign keys
+
+Migration `relations_and_indexes` added every relation that does not change behaviour (`Span` self relation, `BackgroundTask -> Trace`). These were evaluated and **skipped**:
+
+| Candidate | Why it is not a foreign key |
+|---|---|
+| `ExecutionLog` / `MemoryEvent` / `BusEvent` / `ToolCallEvent` / `ContextEvent` `.traceId -> Trace` | Retention sweeps events and finished traces **independently** (events by their own `createdAt`/`ts`, traces by `startedAt`). `SET NULL` would erase the correlation id of events that outlive their trace (JSONL files keep it, so DB and JSONL would diverge), and `CASCADE` would delete events retention is meant to keep until their own cut-off. The instrumentation SDK also swallows DB errors by design ("never throws"), so an FK to a trace that does not exist (externally supplied correlation id, trace already swept, `tool.invoke` / HTTP error paths) would **silently drop the event** instead of recording it. |
+| the same tables' `.projectId -> Project` | Request, tool and error paths log the project id the *client sent*, before it is validated: `POST /providers/requests` and `POST /simulations/agent-run` set `res.locals.projectId` from the body, so the 404 "unknown project" request log carries a project id that does not exist; `POST /tools/:name/invoke` takes an arbitrary `input.projectId`. An FK would silently lose those log rows. After a test project is deleted its historical events keep the id (they are an audit trail), unlike `Trace` / `ActivityEvent`, which already null it. |
+| `UsageEvent.traceId` / `ActivityEvent.traceId -> Trace` | Spend history and the activity feed are never deleted by retention; `SET NULL` on a trace sweep would rewrite spend rows. |
+| `PricingConfig.providerKey/modelName -> Provider/Model` | Pricing rows can be created for models that are not in the seeded catalog (`POST /api/cost/pricing` accepts any provider slug / model name, or `*`; unknown models fall back to the `*`/`*` row), and the fallback row has no provider or model at all. A relation would either reject those rows or need nullable duplicate columns that must be backfilled and kept in sync. The lookup is already covered by `unique(providerKey, modelName, version)` and `index(providerKey, modelName, effectiveFrom)`. |
+| `ExecutionLog` etc. `.spanId -> Span` | Same reasons as `traceId`; spans are deleted with their trace while events follow their own retention. |
+
+Orphans in the two relations that **were** added (rows pointing at a trace/span that no longer exists) cannot be copied into a table with a foreign key, so the migration clears the reference (`traceId = NULL` / `parentSpanId = NULL`) and **keeps the row**. This is documented in the header of the migration and covered by `backend/tests/core/migrations.test.ts`, which applies the migration to a database that contains valid rows and orphans and checks that nothing is lost.
 
 ## 5. Seeded catalog
 
@@ -568,7 +606,14 @@ Indexes / uniques: `index(projectId, enabled)`. Limit: 200 items per project (40
 | Create a new migration after editing `schema.prisma` (development) | `npm run db:migrate:dev -- --name <what_changed>` (= `prisma migrate dev`), then commit the new folder in `prisma/migrations/` |
 | Regenerate the Prisma client | `npm run db:generate` |
 
-The migration history has two migrations: `20261123103049_init` (17 models) and `20261123122336_auth_and_memory` (adds `User`, `Session`, `ProjectMemoryItem`). `prisma/migrations/migration_lock.toml` pins the provider to `sqlite`.
+The migration history (`prisma/migrations/`, applied in this order; `migration_lock.toml` pins the provider to `sqlite`):
+
+| Migration | What it does |
+|---|---|
+| `20261123103049_init` | the original 17 models |
+| `20261123122336_auth_and_memory` | adds `User`, `Session`, `ProjectMemoryItem` |
+| `20261123125616_memory_cascade` | `ProjectMemoryItem.projectId` foreign key with `ON DELETE CASCADE` |
+| `20261124104502_relations_and_indexes` | `Span` self relation, `BackgroundTask -> Trace` (both `SET NULL`, orphans cleared, no row deleted), extra `projectId` / `requestId` / `(projectId, startedAt)` / `traceId` indexes |
 Tests create a fresh temporary database per test app and apply the same migrations with `prisma migrate deploy` (see [TESTING.md](TESTING.md)).
 
 ## 7. File locations

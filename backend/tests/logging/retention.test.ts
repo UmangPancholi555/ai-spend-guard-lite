@@ -125,3 +125,24 @@ describe('restart persistence', () => {
     ctx = await createTestApp({ dir: ctx.dir });
   });
 });
+
+describe('retention and the BackgroundTask -> Trace relation', () => {
+  it('a task linked to a swept trace is kept and only loses the link (ON DELETE SET NULL); a task linked to a kept trace keeps it', async () => {
+    const i = ctx.deps.instr;
+    const old = await i.startTrace({ name: 'task-trace-old', source: 'ACTUAL', at: daysAgo(40) });
+    await old.end();
+    const fresh = await i.startTrace({ name: 'task-trace-new', source: 'ACTUAL', at: daysAgo(1) });
+    await fresh.end();
+    const linkedOld = await i.startTask({ name: 'task-on-old-trace', kind: 'OTHER', source: 'ACTUAL', traceId: old.traceId });
+    await linkedOld.succeed({});
+    const linkedNew = await i.startTask({ name: 'task-on-new-trace', kind: 'OTHER', source: 'ACTUAL', traceId: fresh.traceId });
+    await linkedNew.succeed({});
+    await i.flush();
+
+    const res = await request(ctx.app).post('/api/logging/retention/run');
+    expect(res.status).toBe(200);
+    expect(await ctx.prisma.trace.count({ where: { traceId: old.traceId } })).toBe(0);
+    expect(await ctx.prisma.backgroundTask.findUniqueOrThrow({ where: { id: linkedOld.id } })).toMatchObject({ name: 'task-on-old-trace', status: 'SUCCEEDED', traceId: null });
+    expect(await ctx.prisma.backgroundTask.findUniqueOrThrow({ where: { id: linkedNew.id } })).toMatchObject({ traceId: fresh.traceId });
+  });
+});
