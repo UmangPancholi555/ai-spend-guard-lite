@@ -75,7 +75,7 @@ export function buildApp(deps: AppDeps) {
     app.get(/^\/(?!api).*/, (_req, res, next) => {
       res.sendFile(path.join(dist, 'index.html'), err => {
         // dist may be mid-rebuild: answer 503 instead of leaking an internal 500
-        if (err && !res.headersSent) res.status(503).json({ error: { code: 'FRONTEND_UNAVAILABLE', message: 'Frontend build is not available right now, retry shortly' } });
+        if (err && !res.headersSent) res.status(503).set('Retry-After', '5').json({ error: { code: 'FRONTEND_UNAVAILABLE', message: 'Frontend build is not available right now, retry shortly' } });
         else if (err) next(err);
       });
     });

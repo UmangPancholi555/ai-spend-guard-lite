@@ -49,6 +49,7 @@ describe('frontend static serving and SPA fallback', () => {
       const res = await request(app).get('/no-such-client-route');
       expect(res.status).toBe(503);
       expect(res.body.error.code).toBe('FRONTEND_UNAVAILABLE');
+      expect(res.headers['retry-after']).toBe('5');
     } finally {
       fs.writeFileSync(path.join(dist, 'index.html'), '<!doctype html><div id="root"></div>');
     }
