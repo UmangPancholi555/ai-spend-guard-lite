@@ -48,7 +48,7 @@ describe('parseDotEnv / target resolution', () => {
   it('relative sqlite paths resolve against prisma/, absolute ones stay, query strings are dropped; non-file URLs are refused', () => {
     expect(resolveDbPath('file:./spendguard.db', REPO_ROOT)).toBe(path.join(REPO_ROOT, 'prisma', 'spendguard.db'));
     expect(resolveDbPath('file:/tmp/a/b.db?connection_limit=1', REPO_ROOT)).toBe('/tmp/a/b.db');
-    expect(() => resolveDbPath('postgresql://u:p@h/db', REPO_ROOT)).toThrow(ResetRefusal);
+    expect(() => resolveDbPath('postgresql://localhost:5432/db', REPO_ROOT)).toThrow(ResetRefusal);
     expect(() => resolveDbPath('file::memory:', REPO_ROOT)).toThrow(ResetRefusal);
   });
   it('defaults match the server config (resolution only - nothing is deleted)', () => {
