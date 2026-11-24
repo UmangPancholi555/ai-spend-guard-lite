@@ -51,6 +51,8 @@ describe('restart persistence (new PrismaClient + deps + app on the same files)'
     expect(before.usage.length).toBeGreaterThanOrEqual(13);
     expect(before.alerts.length).toBeGreaterThanOrEqual(1);
     expect(before.tasks.length).toBeGreaterThanOrEqual(2);
+    // request logs are written from res 'finish' without being awaited: settle them before taking the "before" baseline
+    await ctx.deps.instr.flush();
     const jsonlBefore = readJsonl(ctx);
     const filesBefore = logFiles(ctx);
     const sizeBefore = filesBefore.map(f => fs.statSync(f).size);
@@ -124,6 +126,8 @@ describe('restart persistence (new PrismaClient + deps + app on the same files)'
     ctx = await ctx.restart();
     await pay(ctx, { projectId: p.id, prompt: 'three' });
     expect(await ctx.prisma.usageEvent.count()).toBe(3);
+    // the request log is written from res 'finish' without being awaited: let it reach DB and JSONL before comparing
+    await ctx.deps.instr.flush();
     const lines = readJsonl(ctx);
     expect(await ctx.prisma.executionLog.count()).toBe(lines.length);
     expect(new Set(lines.map(l => l.id)).size).toBe(lines.length);
@@ -141,6 +145,8 @@ describe('restart persistence (new PrismaClient + deps + app on the same files)'
     dirs.push(ctx.dir);
     const p = await mkProject(ctx, 'sot');
     await pay(ctx, { projectId: p.id, prompt: 'x' });
+    // settle the un-awaited request log so it can neither recreate the file after removal nor land between export and count
+    await ctx.deps.instr.flush();
     for (const f of logFiles(ctx)) fs.rmSync(f);
     const ex = await api(ctx).get('/api/export/logs?format=jsonl');
     expect(ex.status).toBe(200);
