@@ -13,7 +13,7 @@ Scope: cross-module integration tests (Vitest + supertest) and browser E2E (Play
 | Integration folder alone | `cd backend && npx vitest run tests/integration` | 8 files, 75 tests passed (incl. the new `auth-runtime.test.ts`, 12 tests) |
 | Playwright E2E | `npm run test:e2e` | 89 tests. First full run after wave 3 work: 88 passed, 1 failed (99-restart lockout assertion, a wrong test assumption, see Observations). After fixing the spec: 89 passed (1.6m). Final run on the stable tree (after fe-b and the backend agents finished, fresh `frontend/dist` build): `npm test` 727 passed, then E2E 89 passed (2.0m) on private ports (`E2E_PORT=4310 E2E_SETUP_PORT=4311 E2E_DIR=/tmp/spendguard-e2e-qa`). Final verification 2026-11-24 on `fix/fmtusd-rounding` (PR #2, e158f0e), private ports `E2E_PORT=4447 E2E_SETUP_PORT=4448`: 89 passed (5.8m), including `01-shell` 7/7 after the PR #1 fix |
 
-Per-spec counts: 01 shell 7, 02 dashboard 4, 03 projects 6, 04 simulator-usage 7, 05 budgets 6, 06 traces 5, 07 observability 4, 08 errors-logs 6, 09 settings 4, 10 auth 15, 11 auth-setup 4, 12 pricing 7, 13 runtime 9, 90 mobile 3, 99 restart 2.
+Per-spec counts: 01 shell 7, 02 dashboard 4, 03 projects 6, 04 simulator-usage 7, 05 budgets 6, 06 traces 5, 07 observability 5, 08 errors-logs 6, 09 settings 4, 10 auth 15, 11 auth-setup 4, 12 pricing 7, 13 runtime 9, 90 mobile 3, 99 restart 2.
 
 An earlier final attempt on the default ports showed 9 failures (ECONNREFUSED, missing CSRF file): another agent ran `playwright test` at the same time against the same port and temp dir, and its global teardown deleted the shared dir. Not a product or test bug; use private ports when several agents run E2E.
 
@@ -41,6 +41,25 @@ E2E isolation: a temp SQLite DB and LOG_DIR under `os.tmpdir()/spendguard-e2e`, 
 Auth in E2E (wave 3): the main server runs with auth ON, `ADMIN_USERNAME`/`ADMIN_PASSWORD` bootstrap, `RATE_LIMIT_PER_MINUTE=0`, `AUTH_LOGIN_IP_LIMIT_PER_MINUTE=1000`. Global setup logs in as the admin through the API, creates a VIEWER, and saves Playwright `storageState` plus the CSRF token for both. `tests/e2e/support/test.ts` exports a `test` with an `auth: 'admin' | 'viewer' | 'none'` option (default admin) that sets the storage state and an `X-CSRF-Token` header for both `page` and `request`, so seeding helpers need no changes. Use `test.use({ auth: 'none' })` for anonymous specs. `11-auth-setup` starts a second backend on :4301 with an empty DB and no ADMIN env to exercise first-run `/setup`. Pitfall found: `playwright.request.newContext()` inherits the test's storage state and headers, and a login that presents a session cookie rotates (deletes) that session, so helper clients are always created with an explicit empty state.
 
 Order dependence: specs run serially on one shared DB, alphabetically. `01-shell` (empty states) and `02-dashboard` (empty dashboard) need a fresh DB, so do not reorder them or run them against a used DB. Every other spec creates uniquely named data.
+
+## Spec-gap run (branch `fix/spec-gaps`, 2026-11-24)
+
+Work: G1 (mock provider spans / timeline / errors labelled SIMULATED), G2 (trace explorer + timeline on the Observability page), G3 (span tree and task -> trace relations, lookup indexes, migration `20261124104502_relations_and_indexes`), G4 (alert level 50 INFO / 80 WARN / 100 CRITICAL), G5 (`test:coverage`), G6 (`npm run reset`), then the documentation pass. One local commit per item; nothing pushed or merged.
+
+Verification, run in the foreground after the last code commit, with every DB / log directory in a temp location (`E2E_DIR=$(mktemp -d)`, per-test temp DBs; the real `prisma/spendguard.db` and `data/` were not used by any test or script run):
+
+| Suite | Command | Result |
+|---|---|---|
+| Typecheck | `npm run typecheck` | clean |
+| E2E typecheck | `npx tsc -p tests/e2e/tsconfig.json --noEmit` | clean |
+| Backend + frontend unit | `npm test` | backend 60 files / 753 tests passed; frontend 2 files / 35 tests passed |
+| Build | `npm run build` | succeeds |
+| Playwright E2E | `E2E_PORT=4457 E2E_SETUP_PORT=4458 E2E_DIR=$(mktemp -d) npm run test:e2e` | 90 passed, 0 failed (3.7 min), one run, not repeated |
+| Coverage | `npm run test:coverage` | backend 96.45 % statements / 91.22 % branches / 96.16 % functions / 96.45 % lines; frontend 26.18 % / 56.06 % / 26.44 % / 26.18 % |
+
+New or changed tests: `backend/tests/core/migrations.test.ts` (migration keeps valid rows, clears orphans, FKs / indexes exist), `backend/tests/core/reset.test.ts` (12 tests, temp DB / LOG_DIR only: dry run, `--yes`, outside-repo refusal, `--force`, protected folders, symlinks, non-SQLite file), `tests/logging/retention.test.ts` (span / task relations), per-threshold alert-level tests (`budgets/budgets.test.ts`, `integration/budgets.test.ts`, e2e `05-budgets`), SIMULATED provenance assertions (`providers/*`, `integration/*`, `traces/timeline.test.ts`, e2e `06-traces`, `08-errors-logs`, `13-runtime`), and the trace explorer (e2e `07-observability`, now 5 specs; `90-mobile` still shows no overflow at 390 px).
+
+Failures hit and fixed during the work (all caused by the changes): 10 backend assertions that expected ACTUAL for `provider.mock` after G1 (updated to SIMULATED). Skipped on purpose: the foreign keys that would break retention or seeding (documented in [DATABASE.md](DATABASE.md)).
 
 ## Coverage
 

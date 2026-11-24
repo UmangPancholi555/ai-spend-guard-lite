@@ -123,7 +123,8 @@ test.describe('memory injection into requests', () => {
     const memEntries = t.timeline.filter((e: any) => e.step.startsWith('memory.injection'));
     expect(memEntries.map((e: any) => e.step)).toEqual(['memory.injection.started', 'memory.injection.completed']);
     expect(memEntries.every((e: any) => e.source === 'ACTUAL')).toBe(true);
-    expect(t.timeline.filter((e: any) => e.source === 'SIMULATED')).toHaveLength(0);
+    // the ONLY simulated entry is the mock provider's response (a simulation, whatever the request source)
+    expect(t.timeline.filter((e: any) => e.source === 'SIMULATED').map((e: any) => `${e.step}:${e.label}`)).toEqual(['response.generated:Response generated (provider.mock)']);
     const ctxSteps = t.timeline.filter((e: any) => e.step.startsWith('context.'));
     expect(ctxSteps.length).toBeGreaterThanOrEqual(3); // prompt, memory added, response
     expect(ctxSteps.every((e: any) => e.source === 'ACTUAL')).toBe(true);
@@ -133,7 +134,9 @@ test.describe('memory injection into requests', () => {
     for (const step of ['memory.injection.started', 'memory.injection.completed', 'context.initialized']) {
       await expect(page.locator(`[data-testid="timeline-entry"][data-step="${step}"]`).first()).toHaveAttribute('data-source', 'ACTUAL');
     }
-    await expect(page.locator('[data-testid="timeline-source"][data-source="SIMULATED"]')).toHaveCount(0);
+    // only the provider.mock response carries the DEMO / SIMULATED badge; every real runtime step is ACTUAL
+    await expect(page.locator('[data-testid="timeline-source"][data-source="SIMULATED"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="timeline-entry"][data-source="SIMULATED"]')).toHaveAttribute('data-step', 'response.generated');
     await expect(page.locator('[data-testid="timeline-source"][data-source="ACTUAL"]').first()).toHaveText('ACTUAL');
     const ex = page.getByTestId('event-explorer');
     await ex.getByTestId('event-tab-memory').click();

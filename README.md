@@ -113,10 +113,15 @@ Copy `.env.example` to `.env`; defaults apply when a variable is unset. `.env` i
 Stop the server first, then:
 
 ```bash
-rm -f prisma/spendguard.db prisma/spendguard.db-journal   # the SQLite file (this also deletes all users, sessions and project memory)
-rm -rf data/logs                                          # JSONL logs (optional)
-npm run db:migrate                                        # recreate schema
+npm run reset              # dry run: prints exactly what would be deleted and exits 1 (nothing is touched)
+npm run reset -- --yes     # deletes it, then re-runs the migrations
 ```
+
+`npm run reset` removes **only** the SQLite file from `DATABASE_URL` (plus its `-journal` / `-wal` / `-shm` files) and the **contents** of `LOG_DIR` (the folder and a `.gitkeep` stay), using the same `.env` / environment as the server, then runs `prisma migrate deploy`. This also deletes all users, sessions, project memory and spend history. Safety rules:
+
+- it refuses to delete anything without `--yes` and prints the full list of files first;
+- a database or log path **outside this repository** is refused unless you add `--force`;
+- it refuses a `DATABASE_URL` that is not a local SQLite `file:` URL, a database file that is not an SQLite file, symlinked targets, and a `LOG_DIR` that is (or contains) the repo root, `prisma/`, `backend/`, `frontend/`, `docs/`, `tests/`, `node_modules/`, `.git`, your home directory or `/` - even with `--force`.
 
 The catalog (providers, models, pricing) is re-seeded the next time the server starts, and you create the first admin again (see above).
 To keep a copy first: `cp prisma/spendguard.db prisma/spendguard.backup.db` (with the server stopped).
@@ -178,7 +183,7 @@ Test counts and the latest results are recorded in [docs/TESTING.md](docs/TESTIN
 
 ```
 ai-spend-guard-lite/
-├── package.json              npm workspaces + root scripts (incl. user:create / user:unlock / user:reset-password)
+├── package.json              npm workspaces + root scripts (incl. reset, test:coverage, user:create / user:unlock / user:reset-password)
 ├── .env.example              every environment variable with defaults
 ├── prisma/
 │   ├── schema.prisma         data model (SQLite, 20 models)

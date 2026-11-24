@@ -99,7 +99,8 @@ describe('providers end-to-end through the real app (real cost, budgets, instrum
     expect(trace).toMatchObject({ name: 'provider.request', source: 'ACTUAL', status: 'OK', requestId: d.requestId });
     const spans = await ctx.prisma.span.findMany({ where: { traceId: d.traceId } });
     const byName = (n: string) => spans.find(s => s.name === n);
-    for (const n of ['provider.mock', 'cost.calculate', 'usage.persist', 'budget.evaluate']) expect(byName(n)?.source, n).toBe('ACTUAL');
+    for (const n of ['cost.calculate', 'usage.persist', 'budget.evaluate']) expect(byName(n)?.source, n).toBe('ACTUAL');
+    expect(byName('provider.mock')?.source, 'provider.mock').toBe('SIMULATED'); // simulation, never ACTUAL
     expect(JSON.parse(byName('provider.mock')!.attributes).simulated).toBe(true);
     expect(spans.filter(s => s.source === 'SIMULATED').length).toBeGreaterThan(0);
     expect(await ctx.prisma.contextEvent.count({ where: { traceId: d.traceId, source: 'SIMULATED' } })).toBe(4);

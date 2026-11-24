@@ -34,7 +34,9 @@ test.describe('error log', () => {
     const mock = rows.filter({ hasText: 'provider.mock' });
     await expect(mock).toHaveCount(1);
     await expect(rows.filter({ hasText: 'provider.request' })).toHaveCount(1);
-    await expect(mock).toContainText('ACTUAL');
+    await expect(mock).toContainText('DEMO / SIMULATED'); // provider failure = simulation
+    await expect(mock).not.toContainText('ACTUAL');
+    await expect(rows.filter({ hasText: 'provider.request' })).toContainText('ACTUAL'); // the real trace lifecycle failure stays ACTUAL
     await expect(mock.getByTestId('trace-link')).toHaveAttribute('href', `/traces/${failTrace}`);
 
     await mock.getByTestId('error-row-toggle').click();
@@ -75,7 +77,12 @@ test.describe('error log', () => {
     await page.getByTestId('error-filter-source').selectOption('ACTUAL');
     await expect(rows.filter({ hasNotText: 'ACTUAL (instrumented)' })).toHaveCount(0);
     await expect(rows.first()).toBeVisible();
-    // search
+    // the mock provider's failures are a simulation: never listed as ACTUAL
+    await page.getByTestId('error-filter-search').fill('provider.mock');
+    await expect(page.getByTestId('error-table').getByTestId('empty-state').or(rows.first())).toBeVisible();
+    await expect(rows.filter({ hasText: 'provider.mock' })).toHaveCount(0);
+    // search (provider.mock rows live under SIMULATED)
+    await page.getByTestId('error-filter-source').selectOption('SIMULATED');
     await page.getByTestId('error-filter-search').fill('provider.mock');
     await expect(rows.first()).toBeVisible();
     await expect(rows.filter({ hasNotText: 'provider.mock' })).toHaveCount(0);

@@ -1,7 +1,10 @@
 /**
  * Mock request pipeline (the ONLY place that creates UsageEvents). See docs/CONTRACT.md "Mock request pipeline".
- * The mock provider call is a local deterministic SIMULATION; the surrounding lifecycle (cost, persistence,
- * budgets, tracing) is real app execution, hence ACTUAL spans with `simulated: true` on the provider span.
+ *
+ * PROVENANCE: the mock provider call is a local deterministic SIMULATION, so the `provider.mock` span, its timeline
+ * entry and the provider-failure ErrorRecord are ALWAYS labelled SIMULATED (PROVIDER_SOURCE), whatever the request's
+ * source. The surrounding lifecycle (root trace, context, memory, tools, cost, persistence, budgets, event bus) is real
+ * app execution and keeps the request's `source` (ACTUAL for live requests, SIMULATED when seeding).
  */
 import type { AppDeps } from '../../contracts/services';
 import type { ErrorInfo, SpanHandle, TraceHandle } from '../../contracts/instrumentation';
@@ -46,6 +49,9 @@ export interface ExecuteOptions {
   /** called as soon as the trace exists (routes set res.locals.traceId) */
   onTrace?: (traceId: string) => void;
 }
+
+/** Provenance of everything the mock provider does: a simulation, never real provider work. */
+export const PROVIDER_SOURCE: Source = 'SIMULATED';
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -146,7 +152,7 @@ export async function executeMockRequest(deps: AppDeps, rawInput: MockProviderRe
 
     // 3. mock provider (simulated). Token counts reflect prompt + injected memory (deterministic for the same memory).
     const provider = getMockProvider(input.provider);
-    const completion: MockCompletion = await inSpan(trace, source, 'provider.mock', 'PROVIDER',
+    const completion: MockCompletion = await inSpan(trace, PROVIDER_SOURCE, 'provider.mock', 'PROVIDER',
       { provider: input.provider, model: input.model, simulated: true, label: SIM_LABEL, simulateFailure: input.simulateFailure },
       async () => {
         const c = provider.complete({
@@ -167,7 +173,7 @@ export async function executeMockRequest(deps: AppDeps, rawInput: MockProviderRe
       });
     if (completion.failure) {
       await instr.recordError({
-        source, category: completion.failure.category, operation: 'provider.mock', error: failureInfo,
+        source: PROVIDER_SOURCE, category: completion.failure.category, operation: 'provider.mock', error: failureInfo,
         traceId, projectId: project.id, requestId, at: clock(),
         attributes: { provider: input.provider, model: input.model, errorCode: completion.failure.code, simulated: true },
         durationMs: completion.durationMs,

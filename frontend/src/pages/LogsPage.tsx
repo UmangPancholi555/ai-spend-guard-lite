@@ -22,7 +22,7 @@ export default function LogsPage() {
         <TextFilter label="Event type" value={f.filters.eventType} onChange={v => f.setFilter('eventType', v)} placeholder="e.g. request.completed" testId="log-filter-event-type" />
         <SelectFilter label="Category" value={f.filters.category} onChange={v => f.setFilter('category', v)} options={CATEGORIES} testId="log-filter-category" />
         <SelectFilter label="Status" value={f.filters.status} onChange={v => f.setFilter('status', v)} options={['STARTED', 'SUCCESS', 'FAILURE', 'INFO']} testId="log-filter-status" />
-        <SelectFilter label="Level" value={f.filters.level} onChange={v => f.setFilter('level', v)} options={['DEBUG', 'INFO', 'WARN', 'ERROR']} testId="log-filter-level" />
+        <SelectFilter label="Level" value={f.filters.level} onChange={v => f.setFilter('level', v)} options={['DEBUG', 'INFO', 'WARN', 'ERROR', 'CRITICAL']} testId="log-filter-level" />
         <SelectFilter label="Source" value={f.filters.source} onChange={v => f.setFilter('source', v)} options={SOURCE_OPTIONS} testId="log-filter-source" />
         <TextFilter label="Trace id" value={f.filters.traceId} onChange={v => f.setFilter('traceId', v)} placeholder="trace id" testId="log-filter-trace" />
         <TextFilter label="Operation name" type="search" value={f.filters.search} onChange={v => f.setFilter('search', v)} placeholder="search operation" testId="log-filter-search" className="min-w-[12rem]" />

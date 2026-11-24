@@ -6,6 +6,8 @@ import {
 } from './helpers';
 import { createBudgetService, periodBounds } from '../../src/modules/budgets';
 import type { BudgetAlertDto, BudgetDto, BudgetUtilization, BudgetUtilizationDetail } from '../../../shared/types';
+import { alertLevelFor } from '../../../shared/types';
+import { toAlertDto as toLogAlertDto } from '../../src/modules/logging/mappers';
 
 let ctx: TestCtx;
 let instr: RecordingInstr;
@@ -237,16 +239,66 @@ describe('scoping', () => {
   });
 });
 
+describe('alert level escalates with the threshold', () => {
+  const CASES: [number, string, string, 'INFO' | 'WARN' | 'CRITICAL'][] = [
+    [50, '50', 'budget.alert', 'INFO'], [80, '80', 'budget.alert', 'WARN'], [100, '100', 'budget.alert', 'CRITICAL'],
+  ];
+  for (const [threshold, spend, type, level] of CASES) {
+    it(`${threshold}% -> ${level}: DTO, API list, activity and de-duplication`, async () => {
+      const p = await makeProject(ctx.prisma);
+      const b = await makeBudget(ctx.prisma, { projectId: p.id, period: 'MONTHLY', limitUsd: '100' });
+      await addUsage(ctx.prisma, p.id, spend, AT); // crosses exactly this threshold (and none above)
+      const created = await svc.evaluateAfterUsage({ projectId: p.id, at: AT });
+      expect(created).toHaveLength(threshold === 100 ? 3 : threshold === 80 ? 2 : 1); // lower thresholds fire together with it
+      const mine = created.find(a => a.threshold === threshold)!;
+      expect(mine.level).toBe(level);
+      // exactly one activity of that level for this threshold; INFO/WARN/CRITICAL are never ERROR (no failure semantics)
+      const act = instr.activities.filter(a => a.metadata?.threshold === threshold);
+      expect(act).toHaveLength(1);
+      expect(act[0]).toMatchObject({ type, level, source: 'ACTUAL' });
+      expect(instr.activities.every(a => a.level !== 'ERROR')).toBe(true);
+      expect(instr.errors).toHaveLength(0);
+      // API list exposes the same level
+      const res = await request(h.app).get(`/api/budget-alerts?budgetId=${b.id}&threshold=${threshold}`).expect(200);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0]).toMatchObject({ threshold, level });
+      // de-duplication still holds: re-evaluating creates nothing and emits nothing new
+      const before = instr.activities.length;
+      expect(await svc.evaluateAfterUsage({ projectId: p.id, at: AT })).toEqual([]);
+      expect(await svc.evaluateAll(AT)).toEqual([]);
+      expect(instr.activities).toHaveLength(before);
+      expect(await dbAlerts(b.id)).toHaveLength(created.length);
+    });
+  }
+
+  it('alertLevelFor maps every threshold (and in-between values) to the right level', () => {
+    expect([50, 80, 100].map(alertLevelFor)).toEqual(['INFO', 'WARN', 'CRITICAL']);
+    expect([0, 49, 79, 99].map(alertLevelFor)).toEqual(['INFO', 'INFO', 'INFO', 'WARN']);
+    expect(alertLevelFor(150)).toBe('CRITICAL');
+  });
+
+  it('the export mapper (logging/mappers) derives the same level from the stored threshold', async () => {
+    const p = await makeProject(ctx.prisma);
+    await makeBudget(ctx.prisma, { projectId: p.id, period: 'MONTHLY', limitUsd: '100' });
+    await addUsage(ctx.prisma, p.id, '100', AT);
+    await svc.evaluateAfterUsage({ projectId: p.id, at: AT });
+    const rows = await ctx.prisma.budgetAlert.findMany({ include: { budget: { include: { project: { select: { name: true } } } } } });
+    expect(rows.map(r => toLogAlertDto(r).level).sort()).toEqual(['CRITICAL', 'INFO', 'WARN']);
+    expect(Object.keys(toLogAlertDto(rows[0]))).toContain('level');
+  });
+});
+
 describe('instrumentation', () => {
-  it('emits exactly one activity (WARN) and one bus publish per new alert, source ACTUAL, and no ERROR/FAILURE log', async () => {
+  it('emits exactly one activity and one bus publish per new alert, source ACTUAL, level escalating 50% INFO / 80% WARN / 100% CRITICAL, and no ERROR/FAILURE log', async () => {
     const p = await makeProject(ctx.prisma);
     const b = await makeBudget(ctx.prisma, { projectId: p.id, period: 'MONTHLY', limitUsd: '100' });
     await addUsage(ctx.prisma, p.id, '110', AT);
     const alerts = await svc.evaluateAfterUsage({ projectId: p.id, at: AT, traceId: 'trace-1', spanId: 'span-1' });
     expect(alerts).toHaveLength(3);
     expect(instr.activities.map(a => [a.type, a.level, a.source])).toEqual([
-      ['budget.alert', 'WARN', 'ACTUAL'], ['budget.alert', 'WARN', 'ACTUAL'], ['budget.alert', 'WARN', 'ACTUAL'],
+      ['budget.alert', 'INFO', 'ACTUAL'], ['budget.alert', 'WARN', 'ACTUAL'], ['budget.alert', 'CRITICAL', 'ACTUAL'],
     ]);
+    expect(instr.activities.map(a => a.metadata?.level)).toEqual(['INFO', 'WARN', 'CRITICAL']);
     const a100 = instr.activities[2];
     expect(a100).toMatchObject({ traceId: 'trace-1', projectId: p.id });
     expect(a100.metadata).toMatchObject({ threshold: 100, percent: 110, budgetId: b.id });

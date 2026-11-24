@@ -224,7 +224,8 @@ describe('auth ON + runtime: secrets and memory content are never persisted outs
     const trace = (await admin.agent.get(`/api/traces/${withMem.traceId}`).expect(200)).body.data;
     const memSteps = trace.timeline.filter((e: any) => e.step.startsWith('memory.injection'));
     expect(memSteps.map((e: any) => e.step)).toEqual(['memory.injection.started', 'memory.injection.completed']);
-    expect(trace.timeline.every((e: any) => e.source === 'ACTUAL')).toBe(true); // nothing simulated, nothing fabricated
+    // nothing simulated except the provider response (the mock provider is a simulation), nothing fabricated
+    expect(trace.timeline.filter((e: any) => e.source === 'SIMULATED').map((e: any) => e.step)).toEqual(['response.generated']);
     expect(trace.timeline.filter((e: any) => e.step.startsWith('tool.call')).length).toBeGreaterThanOrEqual(4); // pricing.lookup + budget.status
 
     // content/title/prompt: only in the memory table (content/title) - nowhere else

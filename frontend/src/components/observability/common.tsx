@@ -129,8 +129,8 @@ export const SOURCE_OPTIONS: Opt[] = [
   { value: 'SIMULATED', label: 'DEMO / SIMULATED' },
 ];
 
-export function LevelBadge({ level }: { level: LogLevel | 'INFO' | 'WARN' | 'ERROR' }) {
-  const tone = level === 'ERROR' ? 'red' : level === 'WARN' ? 'amber' : level === 'DEBUG' ? 'slate' : 'blue';
+export function LevelBadge({ level }: { level: LogLevel }) {
+  const tone = level === 'ERROR' || level === 'CRITICAL' ? 'red' : level === 'WARN' ? 'amber' : level === 'DEBUG' ? 'slate' : 'blue';
   return <Badge tone={tone}>{level}</Badge>;
 }
 

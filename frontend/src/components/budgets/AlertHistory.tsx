@@ -3,7 +3,7 @@ import type { BudgetAlertDto, BudgetDto, ProjectWithUsage } from '@shared/types'
 import { fmtDateTime, fmtPct, fmtUsd } from '../../lib/format';
 import { Card } from '../ui/Card';
 import { Td } from '../ui/Table';
-import { ExportLinks, FilterBar, PagedTable, SelectFilter, TextFilter, useFilters, useList } from '../observability/common';
+import { ExportLinks, FilterBar, LevelBadge, PagedTable, SelectFilter, TextFilter, useFilters, useList } from '../observability/common';
 import { THRESHOLDS, thresholdTone } from './UtilizationBar';
 
 const INITIAL = { budgetId: '', projectId: '', threshold: '', from: '', to: '' };
@@ -38,14 +38,15 @@ export default function AlertHistory({ budgets, projects, reloadKey }: { budgets
         <TextFilter type="date" label="To" value={f.filters.to} onChange={v => f.setFilter('to', v)} testId="alert-filter-to" />
       </FilterBar>
       <PagedTable state={state} testId="alert-table" onPage={f.setPage} emptyMessage="No budget alerts match these filters. Alerts appear when spend crosses 50%, 80% or 100% of a budget."
-        head={['Raised', 'Budget', 'Project', 'Period', 'Threshold', 'Spend vs limit', 'Used']}
+        head={['Raised', 'Budget', 'Project', 'Period', 'Threshold', 'Level', 'Spend vs limit', 'Used']}
         row={a => (
-          <tr key={a.id} data-testid="alert-row" data-threshold={a.threshold}>
+          <tr key={a.id} data-testid="alert-row" data-threshold={a.threshold} data-level={a.level}>
             <Td>{fmtDateTime(a.createdAt)}</Td>
             <Td>{a.budgetName}</Td>
             <Td>{a.projectId ? (a.projectName ?? a.projectId) : 'Global'}</Td>
             <Td>{a.period}</Td>
             <Td><ThresholdChips active={a.threshold} /></Td>
+            <Td><span data-testid="alert-level" data-level={a.level}><LevelBadge level={a.level} /></span></Td>
             <Td><span data-testid="alert-spend">{fmtUsd(a.spendUsd)}</span> / {fmtUsd(a.limitUsd)}</Td>
             <Td>{fmtPct(a.percent, 2)}</Td>
           </tr>

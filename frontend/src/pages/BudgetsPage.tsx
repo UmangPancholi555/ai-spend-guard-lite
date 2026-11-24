@@ -11,7 +11,7 @@ import { useAsync } from '../lib/useApi';
 import AlertHistory, { ThresholdChips } from '../components/budgets/AlertHistory';
 import BudgetForm from '../components/budgets/BudgetForm';
 import BudgetRow from '../components/budgets/BudgetRow';
-import { SelectFilter } from '../components/observability/common';
+import { LevelBadge, SelectFilter } from '../components/observability/common';
 import { useReadOnly } from '../components/auth/readOnly';
 
 export default function BudgetsPage() {
@@ -60,7 +60,7 @@ export default function BudgetsPage() {
             <ul className="mt-2 space-y-1">
               {evalResult.map(a => (
                 <li key={a.id} className="flex flex-wrap items-center gap-2" data-testid="evaluate-alert">
-                  <ThresholdChips active={a.threshold} /> <span>{a.budgetName}</span>
+                  <ThresholdChips active={a.threshold} /> <span data-testid="evaluate-alert-level" data-level={a.level}><LevelBadge level={a.level} /></span> <span>{a.budgetName}</span>
                   <span className="text-slate-600 dark:text-slate-400">({a.projectName ?? 'Global'}, {a.period})</span>
                 </li>
               ))}

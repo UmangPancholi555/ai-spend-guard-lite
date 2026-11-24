@@ -24,7 +24,8 @@ Design rules used throughout:
 ## 2. Commands
 
 ```bash
-npm test                      # = npm run test -w backend = vitest run (all backend suites)
+npm test                      # backend vitest run + frontend vitest run (both workspaces)
+npm run test:coverage         # same, with v8 coverage (text + html under <workspace>/coverage/, git-ignored)
 npm run test:watch -w backend # vitest in watch mode
 npm run test -w backend -- tests/budgets                           # one folder
 npm run test -w backend -- tests/providers/pipeline.test.ts        # one file
@@ -34,7 +35,14 @@ npm run test:e2e              # = playwright test (see section 6)
 ```
 
 Vitest configuration (`backend/vitest.config.ts`): includes `tests/**/*.test.ts`, test timeout 30 s, hook timeout 60 s, forks pool.
-The backend workspace also has `@vitest/coverage-v8` installed, so coverage can be produced with `npm run test -w backend -- --coverage` (output goes to the git-ignored `coverage/`).
+**Coverage.** `npm run test:coverage` (root) runs the backend and the frontend Vitest suites with `@vitest/coverage-v8` (same version as `vitest`, a devDependency of both workspaces). Each workspace also has its own `npm run test:coverage -w backend|frontend`. Reporters: `text` (summary table in the terminal) and `html`; output goes to the git-ignored `coverage/backend/index.html` and `coverage/frontend/index.html`. Coverage is measured over `backend/src/**` and `frontend/src/**` (so files no test imports count as 0 %). Coverage only measures the Vitest suites: the Playwright e2e run is not instrumented, so frontend pages that are only exercised end to end show as uncovered here.
+
+Latest run (`npm run test:coverage`, v8 provider, all tests passing):
+
+| Workspace | Statements | Branches | Functions | Lines |
+|---|---|---|---|---|
+| Backend (`backend/src`, 753 tests) | 96.45 % | 91.22 % | 96.16 % | 96.45 % |
+| Frontend (`frontend/src`, 35 tests) | 26.18 % | 56.06 % | 26.44 % | 26.18 % |
 
 Requirements: Node >= 20, the Prisma client generated (`npm install` does it), and `npx prisma` available on the PATH of the test process (it is a root dev dependency). No `.env` or running server is needed for `npm test`; each test passes its own `DATABASE_URL` to the Prisma CLI.
 
@@ -94,7 +102,7 @@ it('survives a restart', async () => {
 
 ## 4. Suites
 
-Last verified run (coordinator, 2026-11-23): 57 test files, 727 tests passed, 0 failed (see [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)); re-run `npm test` for current counts.
+Last verified run (branch `fix/spec-gaps`, 2026-11-24): backend 60 test files / 753 tests passed, 0 failed; frontend 2 files / 35 tests passed (see section 8); re-run `npm test` for current counts. Suites added on this branch: `core/migrations.test.ts` (migration applies, keeps valid rows, clears orphans, new indexes / FKs exist), `core/reset.test.ts` (`npm run reset`, temp DB / LOG_DIR only), the new retention cases for the span / task relations in `logging/retention.test.ts`, and per-threshold alert-level tests in `budgets/budgets.test.ts` and `integration/budgets.test.ts`. The provider tests now assert that `provider.mock` spans, timeline entries and errors are `SIMULATED`.
 
 | Folder / file | Covers |
 |---|---|
@@ -163,22 +171,25 @@ Last verified run (coordinator, 2026-11-23): 57 test files, 727 tests passed, 0 
 - Selectors use the stable `data-testid` attributes present throughout the pages (for example `dashboard-seed`, `simulator-submit`, `trace-row`, `budgets-evaluate`, `user-menu`).
 - Output (`test-results/`, `playwright-report/`) is git-ignored.
 
-Specs `01-shell` ... `99-restart-persistence` in `tests/e2e/` (14 files; `10-auth` covers login / logout / redirects, roles and CSRF in the browser, `11-auth-setup` the first-run flow, `12-pricing` the pricing and calculator page). Last verified run (coordinator, 2026-11-23): 89 passed, 0 failed (1.6 min). An earlier run the same day had 1 failure in `10-auth` caused by a racy test step (fixed). No repeat-run stability number exists for this version.
+Specs `01-shell` ... `99-restart-persistence` in `tests/e2e/` (15 files; `10-auth` covers login / logout / redirects, roles and CSRF in the browser, `11-auth-setup` the first-run flow, `12-pricing` the pricing and calculator page, `07-observability` includes the trace explorer, `90-mobile` the 390 px no-overflow check). Last verified run (branch `fix/spec-gaps`, 2026-11-24, `E2E_PORT=4457 E2E_SETUP_PORT=4458`, temp `E2E_DIR`): 90 passed, 0 failed (3.7 min). No repeat-run stability number exists for this version.
 
 ## 7. Coverage notes and known gaps
 
 - Strong: money / cost math, budget thresholds and duplicate prevention, instrumentation privacy and resilience, API validation, exports, retention, and cross-module agreement of totals.
-- Frontend: covered only through Playwright e2e (no component / unit tests); TypeScript type-checking guards the API contract. The pricing UI's money math (`components/pricing/math.ts`) has no unit tests of its own.
+- Frontend: two Vitest + jsdom files exist (`components/auth/readOnly.test.tsx`, the VIEWER read-only controls; `lib/format.test.ts`, 35 tests in total), run by `npm test`. Everything else is covered only through Playwright e2e, which is not instrumented, so frontend line coverage is low (26 %). TypeScript type-checking guards the API contract. The pricing UI's money math (`components/pricing/math.ts`) has no unit tests of its own.
 - Not tested: multi-process safety of the in-process mutexes (budget and pricing creation) and of the in-memory login throttles, TLS / `COOKIE_SECURE=true` behaviour against a real HTTPS proxy, very large databases beyond the 10,000-row suite / performance, browsers other than Chromium, Windows paths.
 - The mock providers are tested for determinism and invariants, not for realism.
 
 ## 8. Test results
 
+Final verification run of branch `fix/spec-gaps`, 2026-11-24 (all DB / log directories temporary):
+
 | Item | Value |
 |---|---|
-| Backend test files | 57 |
-| Backend tests passed / failed / skipped | 727 / 0 / 0 |
-| Typecheck | clean (backend + frontend) |
-| E2E tests passed / failed | 89 / 0 |
-
-Verified by coordinator: **pending** (coordinator fills in the numbers and date after the final run).
+| Backend test files / tests passed / failed / skipped | 60 / 753 / 0 / 0 |
+| Frontend unit test files / tests passed | 2 / 35 |
+| `npm run typecheck`, `npx tsc -p tests/e2e/tsconfig.json --noEmit` | clean |
+| `npm run build` | succeeds |
+| E2E tests passed / failed (Chromium) | 90 / 0 |
+| Backend coverage (statements / branches / functions / lines) | 96.45 % / 91.22 % / 96.16 % / 96.45 % |
+| Frontend coverage (statements / branches / functions / lines) | 26.18 % / 56.06 % / 26.44 % / 26.18 % |

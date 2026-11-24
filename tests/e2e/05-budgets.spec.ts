@@ -60,6 +60,12 @@ test.describe('budgets & alerts', () => {
     await sendAndExpect(2, '100.00%', 'Limit reached');
     await expect(alertsFor()).toHaveCount(3);
     expect(await alertsFor().evaluateAll(els => els.map(e => e.getAttribute('data-threshold')).sort())).toEqual(['100', '50', '80']);
+    // the alert level escalates with the threshold and is shown in the alert list: 50% INFO, 80% WARN, 100% CRITICAL
+    for (const [threshold, level] of [['50', 'INFO'], ['80', 'WARN'], ['100', 'CRITICAL']]) {
+      const lr = page.locator(`[data-testid="alert-row"][data-threshold="${threshold}"]`).filter({ hasText: name });
+      await expect(lr).toHaveAttribute('data-level', level);
+      await expect(lr.getByTestId('alert-level')).toHaveText(level);
+    }
     await expect(row.getByTestId('utilization-bar')).toHaveAttribute('data-state', 'exceeded');
 
     // more spend past 100% and repeated evaluation never add rows
@@ -104,6 +110,9 @@ test.describe('budgets & alerts', () => {
     await page.goto('/');
     await expect(page.getByTestId('recent-alerts')).toBeVisible();
     await expect(page.getByTestId('recent-alerts')).toContainText('100%');
+    // dashboard shows each alert's level (existing level badge styling)
+    await expect(page.getByTestId('recent-alerts').locator('[data-testid="alert-level"][data-level="CRITICAL"]').first()).toHaveText('CRITICAL');
+    await expect(page.getByTestId('recent-alerts').locator('[data-testid="alert-level"][data-level="INFO"]').first()).toHaveText('INFO');
     await expect(page.getByTestId('budget-utilization-item').first()).toBeVisible();
   });
 

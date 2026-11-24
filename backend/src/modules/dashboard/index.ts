@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import type { PrismaClient } from '@prisma/client';
 import type { AppDeps } from '../../contracts/services';
 import type { BudgetAlertDto, BudgetPeriod, DashboardStats, AlertThreshold } from '../../../../shared/types';
+import { alertLevelFor } from '../../../../shared/types';
 import { ah, parse } from '../../utils/http';
 import { notFound } from '../../utils/errors';
 import { picoToUsd } from '../../utils/money';
@@ -106,7 +107,7 @@ export function createDashboardRouter(deps: AppDeps): Router {
     const recentAlerts: BudgetAlertDto[] = alerts.map(a => ({
       id: a.id, budgetId: a.budgetId, budgetName: a.budget.name, projectId: a.budget.projectId,
       projectName: a.budget.project?.name ?? null, period: a.budget.period as BudgetPeriod,
-      threshold: a.threshold as AlertThreshold, periodStart: a.periodStart.toISOString(), periodEnd: a.periodEnd.toISOString(),
+      threshold: a.threshold as AlertThreshold, level: alertLevelFor(a.threshold), periodStart: a.periodStart.toISOString(), periodEnd: a.periodEnd.toISOString(),
       spendUsd: picoToUsd(a.spendPico), limitUsd: picoToUsd(a.limitPico), percent: a.percent, createdAt: a.createdAt.toISOString(),
     }));
 

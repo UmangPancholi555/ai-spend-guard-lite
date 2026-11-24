@@ -2,6 +2,7 @@ import type {
   ActivityEventDto, BackgroundTaskDto, BudgetAlertDto, BusEventDto, ContextEventDto, ErrorCategory, ExecutionLogDto,
   MemoryEventDto, Source, SpanStatus, TaskKind, TaskStatus, ToolCallEventDto, TraceDto,
 } from '../../../../shared/types';
+import { alertLevelFor } from '../../../../shared/types';
 import { picoToUsd } from '../../utils/money';
 import { parseJson } from '../../utils/serialize';
 
@@ -47,7 +48,7 @@ export const toContextDto = (r: any): ContextEventDto => ({
 });
 export const toAlertDto = (r: any): BudgetAlertDto => ({
   id: r.id, budgetId: r.budgetId, budgetName: r.budget?.name ?? '', projectId: r.budget?.projectId ?? null,
-  projectName: r.budget?.project?.name ?? null, period: r.budget?.period, threshold: r.threshold, periodStart: r.periodStart.toISOString(),
+  projectName: r.budget?.project?.name ?? null, period: r.budget?.period, threshold: r.threshold, level: alertLevelFor(r.threshold), periodStart: r.periodStart.toISOString(),
   periodEnd: r.periodEnd.toISOString(), spendUsd: picoToUsd(r.spendPico), limitUsd: picoToUsd(r.limitPico), percent: r.percent,
   createdAt: r.createdAt.toISOString(),
 });

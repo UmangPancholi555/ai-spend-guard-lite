@@ -15,6 +15,7 @@ import DemoBanner from '../components/dashboard/DemoBanner';
 import SeedDemoButton from '../components/dashboard/SeedDemoButton';
 import { BudgetUtilizationList } from '../components/dashboard/UtilizationBar';
 import { DailySpendChart, ProviderCostChart, SuccessFailureChart } from '../components/dashboard/charts';
+import { LevelBadge } from '../components/observability/common';
 
 const RANGES = [7, 14, 30, 90];
 
@@ -114,7 +115,7 @@ export default function DashboardPage() {
                       <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <Badge tone={a.level === 'ERROR' ? 'red' : a.level === 'WARN' ? 'amber' : 'slate'}>{a.level}</Badge>
+                            <Badge tone={a.level === 'ERROR' || a.level === 'CRITICAL' ? 'red' : a.level === 'WARN' ? 'amber' : 'slate'}>{a.level}</Badge>
                             <span className="break-words">{a.message}</span>
                           </div>
                           <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
@@ -159,6 +160,7 @@ export default function DashboardPage() {
                         <li key={a.id} className="py-2 text-sm">
                           <div className="flex flex-wrap items-center gap-2">
                             <Badge tone={a.threshold >= 100 ? 'red' : a.threshold >= 80 ? 'amber' : 'blue'}>{a.threshold}%</Badge>
+                            <span data-testid="alert-level" data-level={a.level}><LevelBadge level={a.level} /></span>
                             <span className="font-medium">{a.budgetName}</span>
                             <span className="text-xs text-slate-600 dark:text-slate-400">{a.projectName ?? 'All projects'} - {a.period}</span>
                           </div>
