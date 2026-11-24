@@ -202,7 +202,8 @@ Runs the [mock pipeline](ARCHITECTURE.md#4-the-mock-request-pipeline). Returns *
 | `injectMemory` | boolean | default `true`: prepend the project's enabled memory items (real `MemoryStore`) to the provider prompt; `false` skips injection |
 
 Response `MockProviderResponse`: `requestId, traceId, simulated, label, provider, model, projectId, status, content (null on failure), finishReason (stop|length|error), usage {inputTokens, outputTokens, cachedTokens}, cost (CostBreakdown), durationMs (simulated), error?, budgetAlerts[], usageEventId`, plus the real-runtime summaries (metadata only, no content):
-`memory { injected, items, estimatedTokens, truncated, droppedItems }`, `context { contextId, version, sizeBytes, estimatedTokens, windowTokens, truncated }`, `tools[]` (`name, toolCallId, status SUCCESS|FAILURE, attempts, durationMs` for the `pricing.lookup` and `budget.status` preflight calls), `budgetPreflight { status OK|UNAVAILABLE, budgets, highestPercent, overLimit }`, `httpRequestId`.
+
+Provenance of the trace this request creates: the real lifecycle (root trace, context, memory, tools, cost, persistence, budgets, bus) is `ACTUAL`; the `provider.mock` span, its "Response generated (provider.mock)" timeline entry and a mock-provider failure error record are always `SIMULATED` (the response itself is `simulated: true`).`memory { injected, items, estimatedTokens, truncated, droppedItems }`, `context { contextId, version, sizeBytes, estimatedTokens, windowTokens, truncated }`, `tools[]` (`name, toolCallId, status SUCCESS|FAILURE, attempts, durationMs` for the `pricing.lookup` and `budget.status` preflight calls), `budgetPreflight { status OK|UNAVAILABLE, budgets, highestPercent, overLimit }`, `httpRequestId`.
 The same `memory` / `context` / `tools` / `budgetPreflight` objects are stored in `UsageEvent.metadata`. With memory items present, token counts reflect prompt **plus** injected memory.
 Simulated error codes: `PROVIDER_ERROR` (HTTP 500-style), `PROVIDER_TIMEOUT`, `RATE_LIMITED`.
 
@@ -384,8 +385,8 @@ Periods are UTC: DAILY = UTC day, WEEKLY = ISO week from Monday 00:00 UTC, MONTH
 | `POST /budgets/evaluate` | Re-evaluates every active budget now, records a `BUDGET_EVALUATION` task, returns only **newly created** `BudgetAlertDto[]`. | 200 | |
 | `GET /budget-alerts` | Query `budgetId`, `projectId`, `threshold` (50\|80\|100), `from`, `to`, `page`, `pageSize` (on alert `createdAt`). | 200 paged | 400 |
 
-Alerts are created automatically after each provider request (included in `budgetAlerts` of the response) at **50 %, 80 % and 100 %** of the limit, at most once per budget + period + threshold. Budgets of archived projects are not evaluated.
-`BudgetAlertDto`: `id, budgetId, budgetName, projectId, projectName, period, threshold, periodStart, periodEnd, spendUsd, limitUsd, percent, createdAt`.
+Alerts are created automatically after each provider request (included in `budgetAlerts` of the response) at **50 %, 80 % and 100 %** of the limit, at most once per budget + period + threshold. Budgets of archived projects are not evaluated. The alert `level` is derived from the threshold: **50 → `INFO`, 80 → `WARN`, 100 → `CRITICAL`** (not stored; `ALERT_LEVEL_BY_THRESHOLD` in `shared/types.ts`). It is a severity, never an error: `CRITICAL` alerts do not count as failures. The matching `budget.alert` activity event and `budget.threshold.crossed` log use the same level, and the alerts CSV / JSONL export has a `level` column.
+`BudgetAlertDto`: `id, budgetId, budgetName, projectId, projectName, period, threshold, level, periodStart, periodEnd, spendUsd, limitUsd, percent, createdAt`.
 
 ```bash
 c -X POST $API/budgets -H 'content-type: application/json' \
@@ -402,12 +403,12 @@ c -X PATCH $API/budgets/<budgetId> -H 'content-type: application/json' -d '{"lim
 ## 9. Activity, traces, background tasks
 
 ### `GET /activity`
-Paged `ActivityEventDto` (`id, type, level INFO|WARN|ERROR, message, source, projectId, projectName, traceId, requestId, metadata, createdAt`).
+Paged `ActivityEventDto` (`id, type, level INFO|WARN|ERROR|CRITICAL, message, source, projectId, projectName, traceId, requestId, metadata, createdAt`).
 
 | Query | Notes |
 |---|---|
 | `type` | exact; comma-separated list allowed (`usage.recorded,request.failed`) |
-| `level` | `INFO` \| `WARN` \| `ERROR` |
+| `level` | `INFO` \| `WARN` \| `ERROR` \| `CRITICAL` |
 | `source` | `ACTUAL` \| `SIMULATED` |
 | `projectId`, `traceId` | exact |
 | `search` | substring of message or type |
@@ -461,7 +462,7 @@ c "$API/observability/tool-events?status=FAILURE&traceId=<traceId>"
 ## 11. Logs, exports, settings, retention
 
 ### `GET /logs` and `GET /logs/:id`
-Paged `ExecutionLogDto` (`id, ts, level DEBUG|INFO|WARN|ERROR, eventType, category, operation, status STARTED|SUCCESS|FAILURE|INFO, source, traceId, spanId, requestId, projectId, durationMs, message, attributes, errorCategory, errorMessage, stack`).
+Paged `ExecutionLogDto` (`id, ts, level DEBUG|INFO|WARN|ERROR|CRITICAL, eventType, category, operation, status STARTED|SUCCESS|FAILURE|INFO, source, traceId, spanId, requestId, projectId, durationMs, message, attributes, errorCategory, errorMessage, stack`).
 
 | Query | Notes |
 |---|---|
