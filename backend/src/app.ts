@@ -70,6 +70,8 @@ export function buildApp(deps: AppDeps) {
   const dist = deps.config.frontendDist;
   if (dist && fs.existsSync(dist)) {
     app.use(express.static(dist));
+    // a missing build asset is a real 404, not a client route: never answer it with index.html
+    app.use('/assets', notFoundHandler);
     app.get(/^\/(?!api).*/, (_req, res, next) => {
       res.sendFile(path.join(dist, 'index.html'), err => {
         // dist may be mid-rebuild: answer 503 instead of leaking an internal 500
