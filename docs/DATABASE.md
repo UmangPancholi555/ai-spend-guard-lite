@@ -631,12 +631,12 @@ Tests create a fresh temporary database per test app and apply the same migratio
 
 - **Backup** (stop the server first so no write is in flight): `cp prisma/spendguard.db prisma/spendguard.backup.db` and, if you want the logs, `cp -R data/logs data/logs.backup`.
 - **Restore**: stop the server, copy the backup over `prisma/spendguard.db`, start the server.
-- **Reset to an empty database**:
+- **Reset to an empty database** (server stopped):
   ```bash
-  rm -f prisma/spendguard.db prisma/spendguard.db-journal
-  rm -rf data/logs            # optional: also drop JSONL logs
-  npm run db:migrate
+  npm run reset              # dry run: lists exactly what would be deleted, exits 1
+  npm run reset -- --yes     # deletes the DB file (+ -journal/-wal/-shm) and the contents of LOG_DIR, then runs prisma migrate deploy
   ```
+  Implementation: `backend/src/scripts/reset.ts` (tests: `backend/tests/core/reset.test.ts`, always against a temp DB / LOG_DIR). It reads `.env` like the server, refuses paths outside the repository unless `--force`, refuses symlinks, non-SQLite files and protected folders (repo root, `prisma/`, `backend/`, ..., home, `/`) even with `--force`, and touches nothing else. See the README for the full rules.
   The catalog is re-seeded at the next server start. Then optionally regenerate demo data (`POST /api/simulations/seed` or the Dashboard button).
 - To change `DATABASE_URL`, edit `.env`; remember relative SQLite paths resolve against the `prisma/` directory.
 

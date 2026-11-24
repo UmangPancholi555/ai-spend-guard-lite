@@ -16,6 +16,7 @@
     "test": "npm run test -w backend && npm run test -w frontend",
     "test:coverage": "npm run test:coverage -w backend && npm run test:coverage -w frontend",
     "test:e2e": "playwright test",
+    "reset": "tsx backend/src/scripts/reset.ts",
     "user:create": "tsx backend/src/modules/auth/cli.ts create",
     "user:unlock": "tsx backend/src/modules/auth/cli.ts unlock",
     "user:reset-password": "tsx backend/src/modules/auth/cli.ts reset-password"
